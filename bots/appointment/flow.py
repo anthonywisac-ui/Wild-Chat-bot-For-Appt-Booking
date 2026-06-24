@@ -44,6 +44,7 @@ from utils_datetime import (
     check_doctor_shift, check_slot_conflict, format_date, format_time,
 )
 from ai.intent import looks_like_question
+from ai.slotfill import interpret_date_or_time
 from bots.appointment.departments import DEPARTMENTS, get_department
 from datetime import datetime as _datetime
 
@@ -561,16 +562,28 @@ async def _handle_flow_inner(sender, text, bot, db):
             _save(sender, bot.id, session, db)
             return
 
+        doctor_for_context = get_doctor_by_id(db, bot.id, session.get("doctor_id")) if session.get("doctor_id") else None
+        booking_context = (
+            f"They are booking an appointment with Dr. {doctor_for_context.name}." if doctor_for_context
+            else "They are booking a clinic appointment."
+        )
+
         if stage == "select_date":
             parsed_date = parse_date(text_clean)
+            ai_result = None
+            if not parsed_date:
+                # Don't give up with a canned line — let the AI read the actual message
+                # (it may be vague, a question, or phrased unusually) and either pull
+                # out a usable date or reply naturally while still steering toward one.
+                ai_result = await interpret_date_or_time("date", text_clean, bot, db, context=booking_context)
+                if ai_result.get("extracted"):
+                    parsed_date = parse_date(ai_result["extracted"])
+
             if not parsed_date:
                 session["_fail_count"] = session.get("_fail_count", 0) + 1
                 hint = _escape_hint(session["_fail_count"])
-                await send_text_message_v2(
-                    sender,
-                    f"I couldn't understand that date. Please try again (e.g. 'Tomorrow', 'Monday', 'Oct 25').{hint}",
-                    bot,
-                )
+                reply = (ai_result or {}).get("reply") or "What date works for you? For example, 'tomorrow' or 'next Monday'."
+                await send_text_message_v2(sender, f"{reply}{hint}", bot)
                 _save(sender, bot.id, session, db)
                 return
 
@@ -581,14 +594,17 @@ async def _handle_flow_inner(sender, text, bot, db):
 
         elif stage == "select_time":
             parsed_time = parse_time(text_clean)
+            ai_result = None
+            if not parsed_time:
+                ai_result = await interpret_date_or_time("time", text_clean, bot, db, context=booking_context)
+                if ai_result.get("extracted"):
+                    parsed_time = parse_time(ai_result["extracted"])
+
             if not parsed_time:
                 session["_fail_count"] = session.get("_fail_count", 0) + 1
                 hint = _escape_hint(session["_fail_count"])
-                await send_text_message_v2(
-                    sender,
-                    f"I couldn't understand that time. Please try again (e.g. '10 AM', '2:30 PM', 'afternoon').{hint}",
-                    bot,
-                )
+                reply = (ai_result or {}).get("reply") or "What time works for you? For example, '10 AM' or '2:30 PM'."
+                await send_text_message_v2(sender, f"{reply}{hint}", bot)
                 _save(sender, bot.id, session, db)
                 return
             session["_fail_count"] = 0
