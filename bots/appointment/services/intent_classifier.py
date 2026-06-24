@@ -58,8 +58,16 @@ Extract any entities mentioned (in THIS message or implied by context) — only 
 - doctor_preference (gender, name, or any preference mentioned)
 - date (their phrasing, e.g. "tomorrow", "next Friday")
 - time (their phrasing, e.g. "after 6", "morning")
+- age (if mentioned)
+- gender (the PATIENT's gender, if mentioned — distinct from doctor_preference)
+- city (if mentioned)
+- allergies (if mentioned, including "none"/"no allergies")
+- medical_conditions (e.g. diabetes, blood pressure, any condition mentioned, including "none")
+- pregnancy_status (if relevant and mentioned, e.g. "pregnant", "not pregnant", "breastfeeding")
+- current_medications (if mentioned, including "none")
+- previous_treatments (any prior aesthetic/dental treatments mentioned)
 
-Then list missing_information needed to complete their request (only relevant ones, from: treatment, department, doctor_preference, date, time, patient_name) — base this on what's STILL unknown after combining with what we already know above, not just this message alone.
+Then list missing_information needed to complete their request (only relevant ones, from: treatment, department, doctor_preference, date, time, patient_name, age, gender, allergies, medical_conditions, pregnancy_status, current_medications) — base this on what's STILL unknown after combining with what we already know above, not just this message alone. Only ask for medical screening fields when the intent is appointment_booking AND they aren't already known.
 
 Respond with ONLY this JSON shape, nothing else:
 {{

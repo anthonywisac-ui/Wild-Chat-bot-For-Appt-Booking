@@ -351,6 +351,25 @@ class LabReport(Base):
     ai_summary = Column(Text, default="")
     created_at = Column(DateTime, default=datetime.utcnow)
 
+class PatientProfile(Base):
+    """CRM-style persistent record per (bot, phone) — survives across appointments so a
+    returning patient is never re-asked the same medical screening questions twice."""
+    __tablename__ = "patient_profiles"
+    id = Column(Integer, primary_key=True, index=True)
+    bot_id = Column(Integer, ForeignKey("whatsapp_bots.id", ondelete="CASCADE"), nullable=False, index=True)
+    phone = Column(String, index=True, nullable=False)
+    name = Column(String, default="")
+    age = Column(String, default="")
+    gender = Column(String, default="")
+    city = Column(String, default="")
+    allergies = Column(Text, default="")
+    medical_conditions = Column(Text, default="")   # e.g. diabetes, blood pressure, etc.
+    pregnancy_status = Column(String, default="")
+    current_medications = Column(Text, default="")
+    previous_treatments = Column(Text, default="")
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
 class KnowledgeDocument(Base):
     """Source documents ingested into the per-bot RAG knowledge base (ai/rag.py)."""
     __tablename__ = "knowledge_documents"
@@ -624,6 +643,27 @@ def get_doctor_appointments_on_date(db: Session, bot_id: int, doctor_id: int, ap
         )
         .all()
     )
+
+# ========== Patient Profile CRUD ==========
+
+def get_patient_profile(db: Session, bot_id: int, phone: str) -> Optional["PatientProfile"]:
+    return db.query(PatientProfile).filter(PatientProfile.bot_id == bot_id, PatientProfile.phone == phone).first()
+
+def upsert_patient_profile(db: Session, bot_id: int, phone: str, data: dict) -> "PatientProfile":
+    profile = get_patient_profile(db, bot_id, phone)
+    if not profile:
+        profile = PatientProfile(bot_id=bot_id, phone=phone)
+        db.add(profile)
+    for key in (
+        "name", "age", "gender", "city", "allergies", "medical_conditions",
+        "pregnancy_status", "current_medications", "previous_treatments",
+    ):
+        value = data.get(key)
+        if value:  # never overwrite a known fact with blank/None
+            setattr(profile, key, value)
+    db.commit()
+    db.refresh(profile)
+    return profile
 
 # ========== Lab Report CRUD ==========
 

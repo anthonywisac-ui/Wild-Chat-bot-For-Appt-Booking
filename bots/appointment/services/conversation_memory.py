@@ -30,6 +30,17 @@ _DEFAULT_MEMORY = {
     "pending_question": None,     # what we last asked, so a short reply ("yes", "evening") makes sense
     "last_intent": None,
     "history": [],                # [{"role": "user"|"assistant", "text": str}, ...]
+    # Medical screening / CRM intake — once known for a patient (via PatientProfile),
+    # these are never asked again on future visits.
+    "age": None,
+    "gender": None,
+    "city": None,
+    "allergies": None,
+    "medical_conditions": None,
+    "pregnancy_status": None,
+    "current_medications": None,
+    "previous_treatments": None,
+    "profile_loaded": False,       # whether we've already pulled PatientProfile into memory this conversation
 }
 
 
@@ -56,6 +67,14 @@ def merge_entities(memory: dict, entities: dict) -> dict:
         "doctor_preference": "doctor_preference",
         "date": "date_text",
         "time": "time_text",
+        "age": "age",
+        "gender": "gender",
+        "city": "city",
+        "allergies": "allergies",
+        "medical_conditions": "medical_conditions",
+        "pregnancy_status": "pregnancy_status",
+        "current_medications": "current_medications",
+        "previous_treatments": "previous_treatments",
     }
     for entity_key, memory_key in field_map.items():
         value = entities.get(entity_key)
@@ -107,6 +126,20 @@ def known_facts_summary(memory: dict) -> str:
         parts.append(f"Date mentioned: {memory['date_text']}")
     if memory.get("time_text"):
         parts.append(f"Time mentioned: {memory['time_text']}")
+    if memory.get("age"):
+        parts.append(f"Age: {memory['age']}")
+    if memory.get("gender"):
+        parts.append(f"Gender: {memory['gender']}")
+    if memory.get("city"):
+        parts.append(f"City: {memory['city']}")
+    if memory.get("allergies"):
+        parts.append(f"Allergies: {memory['allergies']}")
+    if memory.get("medical_conditions"):
+        parts.append(f"Medical conditions: {memory['medical_conditions']}")
+    if memory.get("pregnancy_status"):
+        parts.append(f"Pregnancy status: {memory['pregnancy_status']}")
+    if memory.get("current_medications"):
+        parts.append(f"Current medications: {memory['current_medications']}")
     if memory.get("pending_question"):
         parts.append(f"We just asked the patient: {memory['pending_question']}")
     return "\n".join(parts) if parts else "Nothing known yet — this is a fresh conversation."

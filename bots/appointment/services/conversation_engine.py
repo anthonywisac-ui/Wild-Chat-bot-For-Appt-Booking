@@ -103,6 +103,7 @@ async def _finalize_booking(sender, memory: dict, bot, db) -> str:
 
 async def handle_turn(sender: str, text: str, bot, db) -> None:
     memory = memory_store.load_memory(db, bot.id, sender)
+    memory = appointment_service.load_patient_profile(memory, bot, db, sender)
     memory_store.append_history(memory, "user", text)
 
     # A pending yes/no confirmation takes priority over re-classifying the message —

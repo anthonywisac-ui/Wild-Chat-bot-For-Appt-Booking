@@ -17,6 +17,7 @@ from db import (
     get_procedures_by_department, get_doctor_by_id, get_procedure_by_id,
     create_appointment, get_upcoming_appointments, get_appointment_by_id,
     cancel_appointment, reschedule_appointment,
+    get_patient_profile, upsert_patient_profile,
 )
 from utils_datetime import (
     parse_date, parse_time, check_doctor_shift, check_slot_conflict,
@@ -91,6 +92,53 @@ def resolve_doctor(memory: dict, bot, db, department: str | None):
 
 
 # ──────────────────────────────────────────────────────────────────────────
+# Patient profile (CRM) — returning patients are never re-screened
+# ──────────────────────────────────────────────────────────────────────────
+
+def load_patient_profile(memory: dict, bot, db, sender: str) -> dict:
+    """Pulls any on-file medical/demographic facts into memory, once per conversation,
+    so a returning patient is never asked the same screening questions again."""
+    if memory.get("profile_loaded"):
+        return memory
+
+    profile = get_patient_profile(db, bot.id, sender)
+    if profile:
+        for field in (
+            "name", "age", "gender", "city", "allergies", "medical_conditions",
+            "pregnancy_status", "current_medications", "previous_treatments",
+        ):
+            value = getattr(profile, field, None)
+            if value and not memory.get("patient_name" if field == "name" else field):
+                memory["patient_name" if field == "name" else field] = value
+
+    memory["profile_loaded"] = True
+    return memory
+
+
+def save_patient_profile(memory: dict, bot, db, sender: str) -> None:
+    upsert_patient_profile(db, bot.id, sender, {
+        "name": memory.get("patient_name"),
+        "age": memory.get("age"),
+        "gender": memory.get("gender"),
+        "city": memory.get("city"),
+        "allergies": memory.get("allergies"),
+        "medical_conditions": memory.get("medical_conditions"),
+        "pregnancy_status": memory.get("pregnancy_status"),
+        "current_medications": memory.get("current_medications"),
+        "previous_treatments": memory.get("previous_treatments"),
+    })
+
+
+def _required_screening_fields(department: str | None) -> list[str]:
+    """Core screening for every booking, plus aesthetic-specific questions
+    (pregnancy/medications matter most for Botox/fillers/injectables)."""
+    fields = ["age", "gender", "allergies", "medical_conditions"]
+    if department == "aesthetic":
+        fields += ["pregnancy_status", "current_medications"]
+    return fields
+
+
+# ──────────────────────────────────────────────────────────────────────────
 # Entity resolution pass — called every turn while booking is in progress
 # ──────────────────────────────────────────────────────────────────────────
 
@@ -125,6 +173,11 @@ async def resolve_and_validate(memory: dict, bot, db) -> dict:
     missing = []
     if not memory.get("department") and not memory.get("treatment") and not memory.get("concern"):
         missing.append("treatment")
+
+    for field in _required_screening_fields(memory.get("department")):
+        if not memory.get(field):
+            missing.append(field)
+
     if not memory.get("date_text") and not memory.get("date_iso"):
         missing.append("date")
     if not memory.get("time_text") and not memory.get("time_24h"):
@@ -209,7 +262,7 @@ def booking_summary_text(memory: dict, bot, db) -> str:
 
 
 def finalize_booking(memory: dict, bot, db, sender: str):
-    return create_appointment(
+    appt = create_appointment(
         db, owner_id=bot.owner_id, bot_id=bot.id, customer_phone=sender,
         service=memory.get("treatment") or "Consultation",
         appointment_date=memory["date_iso"], appointment_time=memory["time_24h"],
@@ -218,6 +271,8 @@ def finalize_booking(memory: dict, bot, db, sender: str):
         procedure_id=memory.get("procedure_id"),
         customer_name=memory.get("patient_name") or "",
     )
+    save_patient_profile(memory, bot, db, sender)
+    return appt
 
 
 # ──────────────────────────────────────────────────────────────────────────
