@@ -37,8 +37,24 @@ _KEYWORD_MAP = [
     (r"\b(book|schedule|appointment|reserve)\b", "book"),
 ]
 
+# If the message looks like a real question, skip the blunt keyword shortcuts above —
+# e.g. "Hi, can you tell me your address?" must NOT short-circuit to "greeting" just
+# because it contains "hi". Let the LLM read the whole sentence instead.
+_QUESTION_MARKERS = (
+    "?", "what", "who ", "when ", "where ", "why ", "how ",
+    "can you", "could you", "do you", "does ", "is there", "are there",
+    "tell me", "explain", "how much", "how many",
+)
+
+
+def looks_like_question(text: str) -> bool:
+    lowered = text.lower()
+    return any(marker in lowered for marker in _QUESTION_MARKERS)
+
 
 def keyword_intent(text: str) -> str | None:
+    if looks_like_question(text):
+        return None
     lowered = text.lower().strip()
     for pattern, intent in _KEYWORD_MAP:
         if re.search(pattern, lowered):

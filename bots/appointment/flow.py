@@ -18,6 +18,7 @@
 #   - Cancel / Reschedule / View upcoming appointments / FAQ (RAG) / general
 #     AI fallback — same as before, now doctor/fee-aware.
 
+import asyncio
 import logging
 
 from db import (
@@ -37,14 +38,36 @@ from ai.rag import answer_with_rag
 from ai.triage import recommend_doctor, analyze_lab_report
 from ai_utils import get_ai_response
 from utils_pdf import generate_appointment_pdf
-from utils_datetime import normalize_and_validate
+from utils_datetime import (
+    normalize_and_validate, parse_date, parse_time,
+    check_doctor_shift, check_slot_conflict, format_date, format_time,
+)
+from ai.intent import looks_like_question
 from bots.appointment.departments import DEPARTMENTS, get_department
+from datetime import datetime as _datetime
 
 logger = logging.getLogger(__name__)
 
 BOOKING_STAGES = {"select_date", "select_time", "confirm"}
 SYMPTOM_TRIAGE_ID = "SYMPTOM_TRIAGE"
 PROC_SKIP_ID = "PROC_SKIP"
+
+# Per-(bot, sender) locks so two messages arriving close together (e.g. a user
+# double-tapping send) can't read-modify-write the same session state and
+# silently undo each other's progress.
+_session_locks: dict[tuple, asyncio.Lock] = {}
+_MAX_TRACKED_LOCKS = 50_000
+
+
+def _get_session_lock(bot_id, sender) -> asyncio.Lock:
+    key = (bot_id, sender)
+    if key not in _session_locks:
+        if len(_session_locks) > _MAX_TRACKED_LOCKS:
+            for stale_key, stale_lock in list(_session_locks.items()):
+                if not stale_lock.locked():
+                    del _session_locks[stale_key]
+        _session_locks[key] = asyncio.Lock()
+    return _session_locks[key]
 
 
 # ──────────────────────────────────────────────────────────────────────────
@@ -295,6 +318,13 @@ async def _handle_document(sender, media_id, filename, bot, db, session):
 # ──────────────────────────────────────────────────────────────────────────
 
 async def handle_flow(sender, text, bot, db):
+    """Public entry point — serializes concurrent messages from the same sender
+    so rapid double-sends can't race on the session state."""
+    async with _get_session_lock(bot.id, sender):
+        await _handle_flow_inner(sender, text, bot, db)
+
+
+async def _handle_flow_inner(sender, text, bot, db):
     session = _get_session(sender, bot.id, db)
     stage = session.get("stage", "idle")
     text_clean = text.strip()
@@ -494,35 +524,69 @@ async def handle_flow(sender, text, bot, db):
             _save(sender, bot.id, session, db)
             return
 
+        # Mid-flow questions ("what's your address?", "how much is it?") get answered
+        # without losing booking progress — instead of being blindly treated as a date/time.
+        if stage in ("select_date", "select_time") and looks_like_question(text_clean):
+            answer = await answer_with_rag(text_clean, bot, db) or await get_ai_response(sender, text_clean, bot, db)
+            await send_text_message_v2(sender, answer, bot)
+            follow_up = "Now, what *Date* would you like?" if stage == "select_date" else "Now, what *Time* works best for you?"
+            await send_text_message_v2(sender, follow_up, bot)
+            _save(sender, bot.id, session, db)
+            return
+
         if stage == "select_date":
-            session["date"] = text_clean
+            parsed_date = parse_date(text_clean)
+            if not parsed_date:
+                await send_text_message_v2(
+                    sender,
+                    "I couldn't understand that date. Please try again (e.g. 'Tomorrow', 'Monday', 'Oct 25').",
+                    bot,
+                )
+                _save(sender, bot.id, session, db)
+                return
+
+            session["date"] = parsed_date.strftime("%Y-%m-%d")
             await send_text_message_v2(sender, "What *Time* works best for you? (e.g. 10 AM, 2:30 PM)", bot)
             session["stage"] = "select_time"
 
         elif stage == "select_time":
-            doctor = get_doctor_by_id(db, bot.id, session.get("doctor_id")) if session.get("doctor_id") else None
-            validation = normalize_and_validate(db, bot.id, doctor, session.get("date", ""), text_clean)
-
-            if not validation["ok"]:
+            parsed_time = parse_time(text_clean)
+            if not parsed_time:
                 await send_text_message_v2(
                     sender,
-                    f"⚠️ {validation['error']}\n\nLet's try again — what *Date* would you like?",
+                    "I couldn't understand that time. Please try again (e.g. '10 AM', '2:30 PM', 'afternoon').",
                     bot,
                 )
-                session["stage"] = "select_date"
-                session.pop("date", None)
                 _save(sender, bot.id, session, db)
                 return
 
-            session["date"] = validation["date"]
-            session["time"] = validation["time"]
+            doctor = get_doctor_by_id(db, bot.id, session.get("doctor_id")) if session.get("doctor_id") else None
+            appt_date_obj = _datetime.strptime(session["date"], "%Y-%m-%d").date()
+
+            if doctor:
+                available, shift_msg = check_doctor_shift(doctor, appt_date_obj, parsed_time)
+                if not available:
+                    await send_text_message_v2(sender, f"⚠️ {shift_msg}\n\nWhat *Date* would you like instead?", bot)
+                    session["stage"] = "select_date"
+                    session.pop("date", None)
+                    _save(sender, bot.id, session, db)
+                    return
+
+                time_str = parsed_time.strftime("%H:%M")
+                conflict, conflict_msg = check_slot_conflict(db, bot.id, doctor.id, session["date"], time_str)
+                if conflict:
+                    await send_text_message_v2(sender, f"⚠️ {conflict_msg} What other time works for you?", bot)
+                    _save(sender, bot.id, session, db)
+                    return
+
+            session["time"] = parsed_time.strftime("%H:%M")
             fee = session.get("total_fee", doctor.consultation_fee if doctor else 0.0)
             fee_line = f"\n💰 Fee: ${fee:.0f}" if fee else ""
             msg = (
                 f"📝 *Confirm Booking:*\n"
                 f"🔹 {session.get('service', 'Appointment')}\n"
-                f"📅 Date: {validation['display_date']}\n"
-                f"⏰ Time: {validation['display_time']}{fee_line}\n\n"
+                f"📅 Date: {format_date(appt_date_obj)}\n"
+                f"⏰ Time: {format_time(parsed_time)}{fee_line}\n\n"
                 "Type *Confirm* to book, or *Cancel* to abort."
             )
             await send_text_message_v2(sender, msg, bot)

@@ -12,10 +12,41 @@ from datetime import datetime, date, time as dtime
 from dateutil import parser as dateutil_parser
 
 WEEKDAY_KEYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
+WEEKDAY_NAMES = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
+MONTH_NAMES = [
+    "jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec",
+    "january", "february", "march", "april", "june", "july", "august",
+    "september", "october", "november", "december",
+]
+_DATE_HINT_WORDS = WEEKDAY_NAMES + MONTH_NAMES + ["today", "tomorrow", "tmrw", "next", "tonight"]
+
+# Vague but common time-of-day phrases mapped to a representative clock time.
+_TIME_OF_DAY_WORDS = {
+    "early morning": dtime(8, 0),
+    "morning": dtime(9, 0),
+    "noon": dtime(12, 0),
+    "afternoon": dtime(14, 0),
+    "evening": dtime(18, 0),
+    "night": dtime(20, 0),
+    "midnight": dtime(0, 0),
+}
+
+
+def _looks_date_ish(text: str) -> bool:
+    """Quick sanity check before handing text to dateutil's fuzzy parser, which
+    will otherwise happily extract a 'date' from completely unrelated sentences
+    like 'What are the availability?' (it grabs the current day/month as a guess)."""
+    lowered = text.lower()
+    if any(ch.isdigit() for ch in lowered):
+        return True
+    return any(word in lowered for word in _DATE_HINT_WORDS)
 
 
 def parse_date(text: str, base: datetime = None) -> date | None:
     """Parses free text like 'Tomorrow', 'Monday', 'Oct 25th' into a date. Returns None if unparsable."""
+    if not _looks_date_ish(text):
+        return None
+
     base = base or datetime.now()
     text_clean = text.strip().lower()
 
@@ -33,7 +64,17 @@ def parse_date(text: str, base: datetime = None) -> date | None:
 
 
 def parse_time(text: str) -> dtime | None:
-    """Parses free text like '10 AM', '2:30 PM', '14:00' into a time. Returns None if unparsable."""
+    """Parses free text like '10 AM', '2:30 PM', '14:00', or vague phrases like
+    'early morning' / 'evening' into a time. Returns None if unparsable."""
+    lowered = text.strip().lower()
+
+    for phrase, approx_time in _TIME_OF_DAY_WORDS.items():
+        if phrase in lowered:
+            return approx_time
+
+    if not any(ch.isdigit() for ch in lowered):
+        return None  # no digits and no recognized time-of-day phrase — don't guess
+
     try:
         parsed = dateutil_parser.parse(text, fuzzy=True)
         return parsed.time().replace(second=0, microsecond=0)
@@ -66,6 +107,27 @@ def _parse_shift_range(shift_text: str) -> tuple[dtime, dtime] | None:
         return None
 
 
+def get_working_days_summary(doctor) -> str:
+    """Returns a friendly one-line summary of the doctor's working days/hours, e.g.
+    'Mon, Tue, Thu 10:00 AM–6:00 PM; Fri 10:00 AM–2:00 PM'."""
+    try:
+        shifts = json.loads(doctor.shift_json or "{}")
+    except Exception:
+        shifts = {}
+
+    groups: dict[str, list[str]] = {}
+    for key, label in zip(WEEKDAY_KEYS, ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]):
+        shift_range = _parse_shift_range(shifts.get(key, ""))
+        if shift_range:
+            hours = f"{format_time(shift_range[0])}–{format_time(shift_range[1])}"
+            groups.setdefault(hours, []).append(label)
+
+    if not groups:
+        return "No working hours are configured yet — please contact the clinic directly."
+
+    return "; ".join(f"{', '.join(days)} {hours}" for hours, days in groups.items())
+
+
 def check_doctor_shift(doctor, appt_date: date, appt_time: dtime) -> tuple[bool, str]:
     """
     Returns (is_available, message). message explains why not available,
@@ -81,7 +143,10 @@ def check_doctor_shift(doctor, appt_date: date, appt_time: dtime) -> tuple[bool,
     shift_range = _parse_shift_range(shift_text)
 
     if shift_range is None:
-        return False, f"Dr. {doctor.name} is not available on {appt_date.strftime('%A')}s."
+        return False, (
+            f"Dr. {doctor.name} is not available on {appt_date.strftime('%A')}s. "
+            f"Working days: {get_working_days_summary(doctor)}."
+        )
 
     start, end = shift_range
     if not (start <= appt_time <= end):
