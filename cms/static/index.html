@@ -1,0 +1,2009 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Wild Automations CRM</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="index.css">
+    <style>
+        .kanban-col { min-width: 280px; }
+        .tab-content { animation: slideIn 0.4s ease forwards; }
+    </style>
+</head>
+<body class="bg-gray-900 text-gray-200 font-sans">
+
+<!-- ==================== LOGIN / REGISTER ==================== -->
+<div id="authContainer" class="min-h-screen flex items-center justify-center p-4">
+    <div class="card-premium w-full max-w-md p-10 animate-slide-in">
+        <div class="text-center mb-8">
+            <div class="gradient-bg w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-xl shadow-emerald-500/20">
+                <i class="fab fa-whatsapp text-3xl text-white"></i>
+            </div>
+            <h2 class="text-3xl font-bold tracking-tight">Welcome Back</h2>
+            <p class="text-slate-400 mt-2">Manage your automations with ease</p>
+        </div>
+        <div class="mb-6 flex p-1 bg-slate-900 rounded-xl">
+            <button id="loginTabBtn" class="flex-1 py-2 text-center font-bold text-emerald-400 bg-slate-800 rounded-lg shadow-sm">Login</button>
+            <button id="registerTabBtn" class="flex-1 py-2 text-center font-bold text-slate-500 hover:text-slate-300">Register</button>
+        </div>
+        <div id="loginForm" class="space-y-4">
+            <div>
+                <label class="block text-xs font-bold text-slate-400 uppercase mb-2">Username</label>
+                <input type="text" id="loginUsername" placeholder="Enter your username" class="input-field">
+            </div>
+            <div>
+                <label class="block text-xs font-bold text-slate-400 uppercase mb-2">Password</label>
+                <input type="password" id="loginPassword" placeholder="••••••••" class="input-field">
+            </div>
+            <button onclick="login()" class="w-full gradient-bg hover:opacity-90 py-3 rounded-xl font-bold shadow-lg shadow-emerald-500/20 transition-all mt-4">Sign In</button>
+            <div id="loginError" class="text-red-400 text-sm mt-2 text-center"></div>
+        </div>
+        <div id="registerForm" class="hidden space-y-4">
+            <div>
+                <label class="block text-xs font-bold text-slate-400 uppercase mb-2">New Username</label>
+                <input type="text" id="regUsername" placeholder="Choose a username" class="input-field">
+            </div>
+            <div>
+                <label class="block text-xs font-bold text-slate-400 uppercase mb-2">New Password</label>
+                <input type="password" id="regPassword" placeholder="Create a strong password" class="input-field">
+            </div>
+            <button onclick="register()" class="w-full bg-blue-600 hover:bg-blue-700 py-3 rounded-xl font-bold shadow-lg shadow-blue-500/20 transition-all mt-4">Create Account</button>
+            <div id="registerError" class="text-red-400 text-sm mt-2 text-center"></div>
+        </div>
+    </div>
+</div>
+
+<!-- ==================== MAIN DASHBOARD ==================== -->
+<div id="dashboardContainer" class="hidden">
+    <div class="flex h-screen">
+        <!-- Sidebar -->
+        <div class="w-64 bg-[#0b1121] border-r border-slate-800 flex flex-col shadow-2xl">
+            <div class="p-6 border-b border-slate-800">
+                <div class="flex items-center gap-3">
+                    <div class="gradient-bg p-2 rounded-xl shadow-lg shadow-emerald-500/20">
+                        <i class="fab fa-whatsapp text-xl text-white"></i>
+                    </div>
+                    <span class="font-bold text-xl tracking-tight gradient-text">Wild CRM</span>
+                </div>
+                <div class="text-xs text-gray-400 mt-1" id="userRoleBadge"></div>
+            </div>
+            <nav class="flex-1 p-3 space-y-1">
+                <button onclick="showTab('dashboard')" data-tab="dashboard" class="sidebar-btn w-full text-left px-3 py-2 rounded-lg flex items-center gap-3 hover:bg-gray-700 transition"><i class="fas fa-tachometer-alt w-5"></i> Dashboard</button>
+                <button onclick="showTab('contacts')" data-tab="contacts" class="sidebar-btn w-full text-left px-3 py-2 rounded-lg flex items-center gap-3 hover:bg-gray-700 transition"><i class="fas fa-users w-5"></i> Contacts</button>
+                <button onclick="showTab('pipeline')" data-tab="pipeline" class="sidebar-btn w-full text-left px-3 py-2 rounded-lg flex items-center gap-3 hover:bg-gray-700 transition"><i class="fas fa-chart-line w-5"></i> Pipeline</button>
+                <button onclick="showTab('reservations')" data-tab="reservations" class="sidebar-btn w-full text-left px-3 py-2 rounded-lg flex items-center gap-3 hover:bg-gray-700 transition"><i class="fas fa-calendar-check w-5"></i> Reservations</button>
+                <button onclick="showTab('calls')" data-tab="calls" class="sidebar-btn w-full text-left px-3 py-2 rounded-lg flex items-center gap-3 hover:bg-gray-700 transition"><i class="fas fa-phone-alt w-5"></i> Call Center</button>
+                <button onclick="showTab('ai')" data-tab="ai" class="sidebar-btn w-full text-left px-3 py-2 rounded-lg flex items-center gap-3 hover:bg-gray-700 transition"><i class="fas fa-robot w-5"></i> AI Assistant</button>
+                <button onclick="showTab('agents')" data-tab="agents" class="sidebar-btn w-full text-left px-3 py-2 rounded-lg flex items-center gap-3 hover:bg-gray-700 transition"><i class="fas fa-microphone-alt w-5"></i> Vapi Agents</button>
+                <button onclick="showTab('webhook')" data-tab="webhook" class="sidebar-btn w-full text-left px-3 py-2 rounded-lg flex items-center gap-3 hover:bg-gray-700 transition"><i class="fas fa-plug w-5"></i> Webhook Live</button>
+                <button onclick="showTab('settings')" data-tab="settings" class="sidebar-btn w-full text-left px-3 py-2 rounded-lg flex items-center gap-3 hover:bg-gray-700 transition"><i class="fas fa-cog w-5"></i> Settings</button>
+                <button onclick="showTab('plugins')" data-tab="plugins" class="sidebar-btn w-full text-left px-3 py-2 rounded-lg flex items-center gap-3 hover:bg-gray-700 transition"><i class="fas fa-puzzle-piece w-5"></i> Plugins</button>
+                
+                <div id="nonAdminBuilderSection" class="hidden pt-4 mt-2 border-t border-gray-700">
+                    <div class="text-xs text-gray-400 px-3 mb-2">BOT BUILDER</div>
+                    <button onclick="showTab('builder')" data-tab="builder" class="sidebar-btn w-full text-left px-3 py-2 rounded-lg flex items-center gap-3 hover:bg-gray-700 transition"><i class="fas fa-magic w-5"></i> Bot Builder</button>
+                </div>
+                <div id="adminBotSection" class="hidden pt-4 mt-2 border-t border-gray-700">
+                    <div class="text-xs text-gray-400 px-3 mb-2">BOT MANAGEMENT</div>
+                    <button onclick="showTab('bot_create')" data-tab="bot_create" class="sidebar-btn w-full text-left px-3 py-2 rounded-lg flex items-center gap-3 hover:bg-gray-700 transition"><i class="fas fa-plus-circle w-5"></i> Create Bot</button>
+                    <button onclick="showTab('bot_assign')" data-tab="bot_assign" class="sidebar-btn w-full text-left px-3 py-2 rounded-lg flex items-center gap-3 hover:bg-gray-700 transition"><i class="fas fa-user-plus w-5"></i> Assign Bot</button>
+                    <button onclick="showTab('bot_list')" data-tab="bot_list" class="sidebar-btn w-full text-left px-3 py-2 rounded-lg flex items-center gap-3 hover:bg-gray-700 transition"><i class="fas fa-list w-5"></i> All Bots</button>
+                    <button onclick="showTab('builder')" data-tab="builder" class="sidebar-btn w-full text-left px-3 py-2 rounded-lg flex items-center gap-3 hover:bg-gray-700 transition"><i class="fas fa-magic w-5"></i> Bot Builder</button>
+                    <button onclick="showTab('users')" data-tab="users" class="sidebar-btn w-full text-left px-3 py-2 rounded-lg flex items-center gap-3 hover:bg-gray-700 transition"><i class="fas fa-users-cog w-5"></i> Users</button>
+                    <button onclick="showTab('activity')" data-tab="activity" class="sidebar-btn w-full text-left px-3 py-2 rounded-lg flex items-center gap-3 hover:bg-gray-700 transition"><i class="fas fa-history w-5"></i> Activity Log</button>
+                </div>
+            </nav>
+            <div class="p-4 border-t border-gray-700 flex items-center justify-between">
+                <span id="sidebarUser" class="text-sm truncate font-medium"></span>
+                <button onclick="logout()" class="text-red-400 hover:text-red-300 transition"><i class="fas fa-sign-out-alt"></i></button>
+            </div>
+        </div>
+
+        <!-- Main Content -->
+        <div class="flex-1 overflow-y-auto bg-gray-900">
+            <!-- TAB: Dashboard -->
+            <div id="tab-dashboard" class="tab-content p-6">
+                <h1 class="text-2xl font-bold mb-6">Dashboard Overview</h1>
+                <div class="grid grid-cols-1 md:grid-cols-4 gap-6 mb-4">
+                    <div class="card-premium p-6">
+                        <div class="text-slate-400 text-xs font-semibold uppercase tracking-wider mb-2">📨 Messages Today</div>
+                        <div class="text-4xl font-bold gradient-text" id="statMessagesToday">0</div>
+                    </div>
+                    <div class="card-premium p-6">
+                        <div class="text-slate-400 text-xs font-semibold uppercase tracking-wider mb-2">📞 Calls Today</div>
+                        <div class="text-4xl font-bold text-blue-400" id="statCallsToday">0</div>
+                    </div>
+                    <div class="card-premium p-6">
+                        <div class="text-slate-400 text-xs font-semibold uppercase tracking-wider mb-2">🔥 New Leads</div>
+                        <div class="text-4xl font-bold text-amber-400" id="statNewLeads">0</div>
+                    </div>
+                    <div class="card-premium p-6">
+                        <div class="text-slate-400 text-xs font-semibold uppercase tracking-wider mb-2">📊 Conversion</div>
+                        <div class="text-4xl font-bold text-violet-400" id="statConversionRate">0%</div>
+                    </div>
+                </div>
+                <!-- Restaurant Sales Counters -->
+                <div class="grid grid-cols-2 md:grid-cols-6 gap-4 mb-8">
+                    <div class="card-premium p-4 text-center">
+                        <div class="text-slate-400 text-xs font-semibold uppercase tracking-wider mb-1">🛵 Delivery</div>
+                        <div class="text-3xl font-bold text-emerald-400" id="statDeliveryToday">0</div>
+                        <div class="text-xs text-gray-500 mt-1">today</div>
+                    </div>
+                    <div class="card-premium p-4 text-center">
+                        <div class="text-slate-400 text-xs font-semibold uppercase tracking-wider mb-1">🏃 Pickup</div>
+                        <div class="text-3xl font-bold text-sky-400" id="statPickupToday">0</div>
+                        <div class="text-xs text-gray-500 mt-1">today</div>
+                    </div>
+                    <div class="card-premium p-4 text-center">
+                        <div class="text-slate-400 text-xs font-semibold uppercase tracking-wider mb-1">🍽️ Dine-In</div>
+                        <div class="text-3xl font-bold text-orange-400" id="statDineInToday">0</div>
+                        <div class="text-xs text-gray-500 mt-1">today</div>
+                    </div>
+                    <div class="card-premium p-4 text-center">
+                        <div class="text-slate-400 text-xs font-semibold uppercase tracking-wider mb-1">🚗 Car Delivery</div>
+                        <div class="text-3xl font-bold text-yellow-400" id="statCarDeliveryToday">0</div>
+                        <div class="text-xs text-gray-500 mt-1">today</div>
+                    </div>
+                    <div class="card-premium p-4 text-center">
+                        <div class="text-slate-400 text-xs font-semibold uppercase tracking-wider mb-1">📅 Reservations</div>
+                        <div class="text-3xl font-bold text-purple-400" id="statReservationsToday">0</div>
+                        <div class="text-xs text-gray-500 mt-1">today</div>
+                    </div>
+                    <div class="card-premium p-4 text-center">
+                        <div class="text-slate-400 text-xs font-semibold uppercase tracking-wider mb-1">💰 Revenue</div>
+                        <div class="text-3xl font-bold text-green-400" id="statRevenueToday">$0</div>
+                        <div class="text-xs text-gray-500 mt-1">today</div>
+                    </div>
+                </div>
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    <div class="card-premium p-6">
+                        <div class="flex justify-between items-center mb-6">
+                            <h2 class="text-xl font-bold">My WhatsApp Bots</h2>
+                            <button onclick="showTab('bot_list')" class="text-xs font-bold text-emerald-400 hover:text-emerald-300">View All</button>
+                        </div>
+                        <div id="whatsappBotsList" class="space-y-4"></div>
+                    </div>
+                    <div class="card-premium p-6">
+                        <div class="flex justify-between items-center mb-6">
+                            <h2 class="text-xl font-bold">My Vapi Agents</h2>
+                            <button onclick="showTab('agents')" class="text-xs font-bold text-blue-400 hover:text-blue-300">Manage</button>
+                        </div>
+                        <div id="vapiAgentsList" class="space-y-4"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- TAB: Contacts -->
+            <div id="tab-contacts" class="tab-content hidden p-6">
+                <div class="flex justify-between items-center mb-6"><h1 class="text-2xl font-bold">Contacts</h1><button onclick="openContactForm()" class="bg-green-600 px-4 py-2 rounded-lg font-bold"><i class="fas fa-plus mr-2"></i>Add Contact</button></div>
+                <div class="bg-gray-800 rounded-xl overflow-hidden border border-gray-700"><table class="w-full text-sm text-left"><thead class="bg-gray-700 text-gray-300"><tr><th class="p-4">Name</th><th>Company</th><th>Status</th><th>Source</th><th>Phone</th><th>Actions</th></tr></thead><tbody id="contactsTable"></tbody></table></div>
+            </div>
+
+            <!-- TAB: Pipeline -->
+            <div id="tab-pipeline" class="tab-content hidden p-6">
+                <div class="flex justify-between items-center mb-6"><h1 class="text-2xl font-bold">Sales Pipeline</h1><button onclick="openDealForm()" class="bg-green-600 px-4 py-2 rounded-lg font-bold"><i class="fas fa-plus mr-2"></i>Add Deal</button></div>
+                <div class="flex gap-4 overflow-x-auto pb-4" id="kanbanBoard"></div>
+            </div>
+
+            <!-- TAB: Reservations -->
+            <div id="tab-reservations" class="tab-content hidden p-6">
+                <div class="flex justify-between items-center mb-6">
+                    <h1 class="text-2xl font-bold">📅 Reservations</h1>
+                    <button onclick="loadReservations()" class="bg-gray-700 hover:bg-gray-600 px-4 py-2 rounded-lg text-sm font-bold"><i class="fas fa-sync mr-2"></i>Refresh</button>
+                </div>
+                <div class="bg-gray-800 rounded-xl overflow-hidden border border-gray-700">
+                    <table class="w-full text-sm text-left">
+                        <thead class="bg-gray-700 text-gray-300">
+                            <tr>
+                                <th class="p-4">Name</th>
+                                <th class="p-4">Phone</th>
+                                <th class="p-4">Date</th>
+                                <th class="p-4">Time</th>
+                                <th class="p-4">Party</th>
+                                <th class="p-4">Status</th>
+                                <th class="p-4">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="reservationsTable"><tr><td colspan="7" class="p-8 text-center text-gray-500">Loading…</td></tr></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- TAB: Webhook -->
+            <div id="tab-webhook" class="tab-content hidden p-6">
+                <h1 class="text-2xl font-bold mb-6">🔌 Connection Hub</h1>
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+                    <div class="bg-gray-800 p-4 rounded-xl border border-gray-700">
+                        <div class="text-gray-400 text-xs mb-1 uppercase tracking-wider">WhatsApp Endpoint</div>
+                        <div class="flex items-center justify-between"><code id="whWhatsappUrl" class="text-sm font-mono text-green-400 truncate mr-2"></code><button onclick="copyText('whWhatsappUrl')" class="text-gray-400 hover:text-white"><i class="fas fa-copy"></i></button></div>
+                    </div>
+                    <div class="bg-gray-800 p-4 rounded-xl border border-gray-700">
+                        <div class="text-gray-400 text-xs mb-1 uppercase tracking-wider">Vapi Voice Endpoint</div>
+                        <div class="flex items-center justify-between"><code id="whVapiUrl" class="text-sm font-mono text-blue-400 truncate mr-2"></code><button onclick="copyText('whVapiUrl')" class="text-gray-400 hover:text-white"><i class="fas fa-copy"></i></button></div>
+                    </div>
+                    <div class="bg-gray-800 p-4 rounded-xl border border-gray-700">
+                        <div class="text-gray-400 text-xs mb-1 uppercase tracking-wider">Verify Token</div>
+                        <div class="flex items-center justify-between"><code id="verifyTokenDisplay" class="text-sm font-mono text-yellow-400 truncate mr-2"></code><button onclick="copyText('verifyTokenDisplay')" class="text-gray-400 hover:text-white"><i class="fas fa-copy"></i></button></div>
+                    </div>
+                </div>
+                <div class="bg-gray-800 rounded-xl p-5 border border-gray-700">
+                    <h3 class="font-bold mb-4">Live Event Stream</h3>
+                    <div id="webhookLog" class="h-80 overflow-y-auto space-y-2 font-mono text-xs"></div>
+                </div>
+            </div>
+
+            <!-- TAB: Bot List -->
+            <div id="tab-bot_list" class="tab-content hidden p-6">
+                <div class="flex justify-between items-center mb-6">
+                    <div>
+                        <h1 class="text-2xl font-bold">My Automation Suite</h1>
+                        <p class="text-gray-400">Manage active bots, edit credentials, or clone existing setups.</p>
+                    </div>
+                    <button onclick="showTab('bot_create')" class="bg-emerald-600 px-4 py-2 rounded-xl font-bold text-sm flex items-center gap-2 shadow-lg shadow-emerald-500/20 hover:opacity-90 transition-all">
+                        <i class="fas fa-plus"></i> New Bot
+                    </button>
+                </div>
+                <div id="allBotsList" class="grid grid-cols-1 md:grid-cols-2 gap-4"></div>
+            </div>
+
+            <!-- MODAL: Bot Event Logs -->
+            <div id="botLogsModal" class="fixed inset-0 bg-black/80 backdrop-blur-sm z-[100] hidden flex items-center justify-center p-4">
+                <div class="card-premium w-full max-w-5xl p-6 animate-slide-in flex flex-col" style="max-height:90vh">
+                    <div class="flex justify-between items-center mb-4">
+                        <div>
+                            <h2 class="text-xl font-bold flex items-center gap-2"><i class="fas fa-history text-blue-400"></i> Bot Event Log</h2>
+                            <p class="text-xs text-slate-400 mt-0.5" id="botLogsTitle">—</p>
+                        </div>
+                        <div class="flex items-center gap-3">
+                            <select id="botLogsFilter" onchange="filterBotLogs()" class="bg-slate-800 border border-slate-700 rounded-lg px-3 py-1.5 text-xs outline-none focus:border-blue-500">
+                                <option value="">All Events</option>
+                                <option value="MSG_IN">Messages</option>
+                                <option value="ORDER_CREATED">Orders</option>
+                                <option value="CONFIG_UPDATED">Config Changes</option>
+                                <option value="BOT_CREATED">Bot Lifecycle</option>
+                            </select>
+                            <button onclick="closeBotLogs()" class="text-slate-500 hover:text-white text-xl"><i class="fas fa-times"></i></button>
+                        </div>
+                    </div>
+                    <div class="overflow-y-auto flex-1">
+                        <table class="w-full text-sm text-left">
+                            <thead class="sticky top-0 bg-slate-900">
+                                <tr class="text-slate-400 text-xs uppercase border-b border-slate-700">
+                                    <th class="p-3 w-40">Time</th>
+                                    <th class="p-3 w-32">Event</th>
+                                    <th class="p-3 w-36">Customer</th>
+                                    <th class="p-3">Details</th>
+                                </tr>
+                            </thead>
+                            <tbody id="botLogsBody">
+                                <tr><td colspan="4" class="p-8 text-center text-slate-500">Loading…</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="mt-3 pt-3 border-t border-slate-700 flex justify-between items-center text-xs text-slate-500">
+                        <span id="botLogsCount">—</span>
+                        <span>Showing latest 200 events</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- MODAL: Bot Credentials Editor -->
+            <div id="credentialsModal" class="fixed inset-0 bg-black/80 backdrop-blur-sm z-[100] hidden flex items-center justify-center p-4">
+                <div class="card-premium w-full max-w-lg p-8 animate-slide-in">
+                    <div class="flex justify-between items-center mb-6">
+                        <h2 class="text-xl font-bold flex items-center gap-2">
+                            <i class="fas fa-key text-emerald-400"></i> Edit Bot Credentials
+                        </h2>
+                        <button onclick="closeCredentialsModal()" class="text-slate-500 hover:text-white"><i class="fas fa-times"></i></button>
+                    </div>
+                    <input type="hidden" id="editCredBotId">
+                    <div class="space-y-4">
+                        <div class="group">
+                            <label class="block text-xs font-bold text-slate-500 mb-1">Bot Name</label>
+                            <input type="text" id="editCredName" class="input-field py-2 text-sm">
+                        </div>
+                        <div class="group">
+                            <label class="block text-xs font-bold text-slate-500 mb-1">Meta Access Token</label>
+                            <input type="password" id="editCredToken" class="input-field py-2 text-sm" placeholder="EAA...">
+                        </div>
+                        <div class="grid grid-cols-2 gap-4">
+                            <div class="group">
+                                <label class="block text-xs font-bold text-slate-500 mb-1">Phone Number ID</label>
+                                <input type="text" id="editCredPhoneId" class="input-field py-2 text-sm">
+                            </div>
+                            <div class="group">
+                                <label class="block text-xs font-bold text-slate-500 mb-1">WABA ID</label>
+                                <input type="text" id="editCredWabaId" class="input-field py-2 text-sm">
+                            </div>
+                        </div>
+                        <div class="group">
+                            <label class="block text-xs font-bold text-slate-500 mb-1">Forwarding URL (Optional)</label>
+                            <input type="text" id="editCredForward" class="input-field py-2 text-sm" placeholder="https://your-server.com/webhook">
+                        </div>
+                        <div class="pt-4 flex gap-3">
+                            <button onclick="closeCredentialsModal()" class="flex-1 bg-slate-800 hover:bg-slate-700 py-3 rounded-xl font-bold transition-all">Cancel</button>
+                            <button onclick="saveBotCredentials()" class="flex-[2] gradient-bg hover:opacity-90 py-3 rounded-xl font-bold shadow-lg shadow-emerald-500/20 transition-all">Save Changes</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- TAB: Bot Builder -->
+            <div id="tab-builder" class="tab-content hidden p-6">
+                <div class="flex justify-between items-center mb-8">
+                    <div>
+                        <h1 class="text-3xl font-bold tracking-tight">Bot Workspace</h1>
+                        <p class="text-slate-400">Build intelligent menu flows and automated rules.</p>
+                    </div>
+                    <div class="flex gap-3">
+                        <select id="builderBotSelect" class="bg-slate-800 border border-slate-700 rounded-xl px-4 py-2 outline-none focus:border-emerald-500 transition-all text-sm font-medium">
+                            <option value="">Select a Bot to Design...</option>
+                        </select>
+                        <button id="btnSaveConfig" onclick="saveBotConfig()" class="gradient-bg hover:opacity-90 px-6 py-2 rounded-xl font-bold transition-all flex items-center gap-2 shadow-lg shadow-emerald-500/20">
+                            <i class="fas fa-save"></i> <span>Sync & Deploy</span>
+                        </button>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-12 gap-6" id="builderWorkspace">
+                    <!-- Left Column: Navigation -->
+                    <div class="col-span-12 lg:col-span-3 space-y-6">
+                        <!-- Categories Panel -->
+                        <div class="card-premium p-5">
+                            <div id="restaurantBuilderNav" class="space-y-6">
+                                <div class="flex justify-between items-center mb-6">
+                                    <h3 class="text-xs font-bold uppercase tracking-widest text-slate-400">Menu Sections</h3>
+                                    <button onclick="addCategory()" class="text-emerald-400 hover:text-emerald-300 transition-colors">
+                                        <i class="fas fa-plus-circle text-lg"></i>
+                                    </button>
+                                </div>
+                                <div id="builderCategories" class="space-y-2 max-h-[400px] overflow-y-auto pr-2">
+                                    <!-- Categories will be rendered here -->
+                                </div>
+                            </div>
+                            <div id="nicheBuilderNav" class="hidden">
+                                <h3 class="text-xs font-bold uppercase tracking-widest text-slate-400 mb-4">Agent Config</h3>
+                                <p class="text-[10px] text-slate-500 mb-4">Configure custom data fields and lead flows for this agent.</p>
+                                <button onclick="selectNicheConfig()" class="sidebar-btn w-full text-left px-3 py-2 rounded-lg transition-all flex items-center active">
+                                    <i class="fas fa-database w-5"></i> 
+                                    <span class="truncate">Knowledge Base</span>
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Global Settings Panel -->
+                        <div class="card-premium p-5">
+                            <h3 class="text-xs font-bold uppercase tracking-widest text-slate-400 mb-6">Policy & Logic</h3>
+                            <div class="space-y-4">
+                                <div class="group">
+                                    <label class="block text-[10px] font-bold text-slate-500 mb-1 group-focus-within:text-emerald-400 transition-colors">SYSTEM PROMPT (AI PERSONALITY)</label>
+                                    <textarea id="botSystemPrompt" class="input-field py-2 text-xs h-24 resize-none" placeholder="Explain how the bot should behave..."></textarea>
+                                </div>
+                                <div class="group">
+                                    <label class="block text-[10px] font-bold text-slate-500 mb-1 group-focus-within:text-emerald-400 transition-colors">TAX / VAT (%)</label>
+                                    <input type="number" id="ruleTax" class="input-field py-2 text-sm" placeholder="e.g. 5">
+                                </div>
+                                <div class="group">
+                                    <label class="block text-[10px] font-bold text-slate-500 mb-1 group-focus-within:text-emerald-400 transition-colors">DELIVERY FEE ($)</label>
+                                    <input type="number" id="ruleDelivery" class="input-field py-2 text-sm" placeholder="e.g. 2.50">
+                                </div>
+                                <div class="group">
+                                    <label class="block text-[10px] font-bold text-slate-500 mb-1 group-focus-within:text-emerald-400 transition-colors">MIN. ORDER ($)</label>
+                                    <input type="number" id="ruleMinOrder" class="input-field py-2 text-sm" placeholder="e.g. 15.00">
+                                </div>
+                                <div class="pt-2 border-t border-slate-700">
+                                    <div class="text-[10px] font-bold text-slate-500 uppercase mb-2">Upsell Rules</div>
+                                    <div class="space-y-2">
+                                        <label class="flex items-center gap-2 cursor-pointer">
+                                            <input type="checkbox" id="upsellBurgerCombo" class="w-4 h-4 rounded accent-emerald-500">
+                                            <span class="text-xs text-slate-300">Burger → Combo Deal</span>
+                                        </label>
+                                        <label class="flex items-center gap-2 cursor-pointer">
+                                            <input type="checkbox" id="upsellPizzaWings" class="w-4 h-4 rounded accent-emerald-500">
+                                            <span class="text-xs text-slate-300">Pizza → Wings Side</span>
+                                        </label>
+                                        <label class="flex items-center gap-2 cursor-pointer">
+                                            <input type="checkbox" id="upsellDesserts" class="w-4 h-4 rounded accent-emerald-500">
+                                            <span class="text-xs text-slate-300">Checkout → Dessert</span>
+                                        </label>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Right Column: Item Editor -->
+                    <div class="col-span-12 lg:col-span-9">
+                        <div class="card-premium p-8 min-h-[600px] relative overflow-hidden">
+                            <!-- Header for selected category -->
+                            <div id="categoryHeader" class="hidden animate-fade-in">
+                                <div class="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 border-b border-slate-700 pb-6">
+                                    <div>
+                                        <div class="flex items-center gap-3">
+                                            <h2 class="text-2xl font-bold gradient-text" id="currentCategoryName">Category Name</h2>
+                                            <button onclick="editCategoryName()" class="text-slate-500 hover:text-slate-300"><i class="fas fa-edit text-sm"></i></button>
+                                        </div>
+                                        <p class="text-slate-400 text-sm mt-1">Configure products and behavioral logic for this section.</p>
+                                    </div>
+                                    <div class="flex gap-2 mt-4 md:mt-0">
+                                        <button onclick="addItem()" class="bg-emerald-600/10 text-emerald-400 hover:bg-emerald-600 hover:text-white px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-2 transition-all">
+                                            <i class="fas fa-plus"></i> New Product
+                                        </button>
+                                        <button onclick="deleteCategory()" class="text-rose-500/50 hover:text-rose-500 p-2 transition-colors">
+                                            <i class="fas fa-trash-alt"></i>
+                                        </button>
+                                    </div>
+                                </div>
+
+                                <!-- Advanced Category Settings -->
+                                <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-10">
+                                    <div class="bg-slate-900/50 p-4 rounded-xl border border-slate-700">
+                                        <label class="block text-[10px] font-bold text-slate-500 uppercase mb-2">Category Logic</label>
+                                        <select onchange="updateCategorySetting('type', this.value)" id="catTypeSelect" class="w-full bg-slate-800 border border-slate-700 rounded-lg p-2 text-xs text-slate-300 outline-none focus:border-emerald-500">
+                                            <option value="normal">Default Menu</option>
+                                            <option value="upsell">Upsell (Suggest at Checkout)</option>
+                                            <option value="deal">Deals (Special Combo Logic)</option>
+                                            <option value="drinks">Drinks / Beverages</option>
+                                        </select>
+                                    </div>
+                                    <div class="bg-slate-900/50 p-4 rounded-xl border border-slate-700">
+                                        <label class="block text-[10px] font-bold text-slate-500 uppercase mb-2">Short ID (Prefix)</label>
+                                        <input type="text" onchange="updateCategorySetting('prefix', this.value)" id="catPrefixInput" class="w-full bg-slate-800 border border-slate-700 rounded-lg p-2 text-xs text-slate-300 outline-none focus:border-emerald-500" placeholder="e.g. FF, PIZ, DL">
+                                    </div>
+                                    <div class="bg-slate-900/50 p-4 rounded-xl border border-slate-700">
+                                        <label class="block text-[10px] font-bold text-slate-500 uppercase mb-2">Display Mode</label>
+                                        <select onchange="updateCategorySetting('display', this.value)" id="catDisplaySelect" class="w-full bg-slate-800 border border-slate-700 rounded-lg p-2 text-xs text-slate-300 outline-none focus:border-emerald-500">
+                                            <option value="list">List (Vertical)</option>
+                                            <option value="grid">Grid (Compact)</option>
+                                            <option value="featured">Featured (Large)</option>
+                                        </select>
+                                    </div>
+                                </div>
+
+                                <!-- Items Grid -->
+                                <div id="builderItems" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+                                    <!-- Items will be rendered here -->
+                                </div>
+                            </div>
+
+                            <!-- Niche Specific Editor (Non-Restaurant) -->
+                            <div id="nicheEditor" class="hidden animate-fade-in">
+                                <div class="flex justify-between items-center mb-6 border-b border-slate-700 pb-6">
+                                    <div>
+                                        <h2 class="text-2xl font-bold gradient-text" id="nicheEditorTitle">Agent Intelligence</h2>
+                                        <p class="text-slate-400 text-sm mt-1">Define the properties, services, or facts this agent knows.</p>
+                                    </div>
+                                </div>
+                                <div class="bg-slate-900/50 p-6 rounded-xl border border-slate-700">
+                                    <div class="flex justify-between items-center mb-4">
+                                        <label class="block text-xs font-bold text-slate-500 uppercase">Knowledge Base (JSON Format)</label>
+                                        <button onclick="formatNicheJson()" class="text-[10px] text-emerald-400 hover:underline">Format JSON</button>
+                                    </div>
+                                    <textarea id="nicheConfigJson" class="w-full bg-slate-950 border border-slate-800 rounded-xl p-4 text-xs font-mono text-emerald-500 h-[400px] focus:border-emerald-500 outline-none transition-all" placeholder='{ "properties": [...], "services": [...] }'></textarea>
+                                    <div class="mt-4 flex items-center gap-2 text-[10px] text-slate-500">
+                                        <i class="fas fa-info-circle"></i> This data will be used by the bot to answer customer questions.
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Empty State -->
+                            <div id="noCategorySelected" class="absolute inset-0 flex flex-col items-center justify-center text-center bg-[#1e293b]/40 backdrop-blur-sm z-10 p-10">
+                                <div class="w-24 h-24 bg-slate-800 rounded-3xl flex items-center justify-center mb-6 shadow-2xl">
+                                    <i class="fas fa-robot text-4xl text-slate-600"></i>
+                                </div>
+                                <h3 class="text-xl font-bold text-slate-300">Design Your Experience</h3>
+                                <p class="text-slate-500 max-w-xs mt-2 mb-8">Select a bot and a menu section from the left to start building your conversational flow.</p>
+                                <div class="flex gap-4">
+                                    <div class="flex items-center gap-2 text-xs text-slate-500">
+                                        <i class="fas fa-mouse-pointer text-emerald-400"></i> Click a section
+                                    </div>
+                                    <div class="flex items-center gap-2 text-xs text-slate-500">
+                                        <i class="fas fa-keyboard text-emerald-400"></i> Add products
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- TAB: Settings -->
+            <div id="tab-settings" class="tab-content hidden p-6">
+                <h1 class="text-2xl font-bold mb-6">Platform Settings</h1>
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+                    <div class="bg-gray-800 rounded-xl p-5 border border-gray-700">
+                        <h2 class="font-bold mb-4">AI Model Keys</h2>
+                        <div class="space-y-4">
+                            <div class="flex gap-4 mb-4 flex-wrap">
+                                <label class="flex-1 p-3 bg-gray-700 rounded-lg border border-gray-600 cursor-pointer"><input type="radio" name="aiProvider" value="gemini" class="mr-2"> Gemini</label>
+                                <label class="flex-1 p-3 bg-gray-700 rounded-lg border border-gray-600 cursor-pointer"><input type="radio" name="aiProvider" value="groq" class="mr-2"> Groq</label>
+                                <label class="flex-1 p-3 bg-gray-700 rounded-lg border border-gray-600 cursor-pointer"><input type="radio" name="aiProvider" value="anthropic" class="mr-2"> Anthropic (Opus)</label>
+                                <label class="flex-1 p-3 bg-gray-700 rounded-lg border border-gray-600 cursor-pointer"><input type="radio" name="aiProvider" value="openrouter" class="mr-2"> OpenRouter</label>
+                            </div>
+                            <div id="geminiKeySection">
+                                <label class="text-xs text-gray-400">Gemini Key</label>
+                                <input type="password" id="geminiApiKey" class="w-full bg-gray-700 p-2 rounded-lg mt-1">
+                            </div>
+                            <div id="groqKeySection">
+                                <label class="text-xs text-gray-400">Groq Key</label>
+                                <input type="password" id="groqApiKey" class="w-full bg-gray-700 p-2 rounded-lg mt-1">
+                            </div>
+                            <div id="anthropicKeySection">
+                                <label class="text-xs text-gray-400">Anthropic Key</label>
+                                <input type="password" id="anthropicApiKey" class="w-full bg-gray-700 p-2 rounded-lg mt-1">
+                            </div>
+                            <div id="openrouterKeySection">
+                                <label class="text-xs text-gray-400">OpenRouter Key</label>
+                                <input type="password" id="openrouterApiKey" class="w-full bg-gray-700 p-2 rounded-lg mt-1">
+                                <label class="text-xs text-gray-400 mt-2 block">OpenRouter Model</label>
+                                <select id="openrouterModel" class="w-full bg-gray-700 p-2 rounded-lg mt-1 text-white">
+                                    <option value="nousresearch/hermes-3-llama-3.1-405b:free">Hermes 3 – Llama 3.1 405B (Free) ⭐ Recommended</option>
+                                    <option value="minimax/minimax-m1:extended">MiniMax M1 Extended (Free) – Multilingual</option>
+                                    <option value="openai/gpt-4o-mini">GPT-4o Mini</option>
+                                    <option value="openai/gpt-4o">GPT-4o</option>
+                                    <option value="anthropic/claude-3.5-sonnet">Claude 3.5 Sonnet (via OpenRouter)</option>
+                                    <option value="custom">Custom model…</option>
+                                </select>
+                                <input type="text" id="openrouterModelCustom" placeholder="e.g. minimax/minimax-m2.5:free" class="w-full bg-gray-700 p-2 rounded-lg mt-1 hidden">
+                            </div>
+                            <button onclick="saveAiConfig()" class="w-full bg-green-600 p-2 rounded-lg font-bold mt-4">Update AI Config</button>
+                            <button onclick="testManagerPing()" class="w-full bg-blue-600 p-2 rounded-lg font-bold mt-2">📱 Test Manager Notification</button>
+                            <div id="managerPingResult" class="mt-2 text-xs hidden"></div>
+                        </div>
+                    </div>
+                    <div class="bg-gray-800 rounded-xl p-5 border border-gray-700">
+                        <h2 class="font-bold mb-4 text-red-500">Danger Zone</h2>
+                        <p class="text-sm text-gray-400 mb-4">All data associated with your account will be permanently deleted.</p>
+                        <div class="flex gap-2">
+                            <input type="text" id="deleteConfirmText" placeholder="Type DELETE" class="bg-gray-700 p-2 rounded-lg flex-1">
+                            <button onclick="deleteAccount()" class="bg-red-600 px-4 py-2 rounded-lg font-bold">Delete</button>
+                        </div>
+                    </div>
+                </div>
+                <div class="bg-gray-800 rounded-xl p-5 border border-gray-700 mb-4">
+                    <h2 class="font-bold mb-2">🍽️ Demo Restaurant Bots</h2>
+                    <p class="text-sm text-gray-400 mb-4">Create all 7 demo restaurant bots (Quick Bites USA, Crispy Cluck USA, Peri Peri UK, Café Paris, Operation Shawarma Dubai, Desi Karahi House, Pizza Palace). Safe to run multiple times — skips existing bots.</p>
+                    <button onclick="seedDemoBots()" class="bg-green-600 hover:bg-green-500 px-6 py-2 rounded-lg font-bold">🚀 Seed Demo Bots</button>
+                    <div id="seedResult" class="mt-3 text-sm text-gray-300 hidden"></div>
+                </div>
+            </div>
+
+            <!-- Other Tabs (Users, Agents, etc.) omitted for brevity but should remain -->
+            <div id="tab-users" class="tab-content hidden p-6">
+                <h1 class="text-2xl font-bold mb-6">User Management (Admin)</h1>
+                <div class="bg-gray-800 rounded-xl overflow-hidden border border-gray-700"><table class="w-full text-sm text-left"><thead class="bg-gray-700 text-gray-300"><tr><th class="p-4">User</th><th>Role</th><th>Bots</th><th>Status</th><th>Actions</th></tr></thead><tbody id="usersTableBody"></tbody></table></div>
+            </div>
+            
+            <div id="tab-bot_create" class="tab-content hidden p-6">
+                <h1 class="text-2xl font-bold mb-6">Bot Creation Wizard</h1>
+                <div class="bg-gray-800 rounded-xl p-8 max-w-2xl mx-auto border border-gray-700">
+                    <!-- Step 1: Identity -->
+                    <div id="wizardStep1">
+                        <h2 class="text-lg font-bold mb-4 text-green-400">Step 1: Identity & Niche</h2>
+                        <div class="space-y-4">
+                            <div><label class="block text-sm font-medium mb-1">Bot Name</label><input type="text" id="botNewName" placeholder="e.g. Pizza King" class="w-full bg-gray-700 p-3 rounded-xl border border-gray-600"></div>
+                            <div><label class="block text-sm font-medium mb-1">Business Niche</label>
+                                <select id="botNewType" class="w-full bg-gray-700 p-3 rounded-xl border border-gray-600">
+                                    <option value="restaurant">Restaurant (Ordering Engine)</option>
+                                    <option value="service">Service (AI Booking)</option>
+                                    <option value="real_estate">Real Estate (Lead Gen)</option>
+                                    <option value="appointment">Appointment (Scheduling)</option>
+                                </select>
+                            </div>
+                            <button onclick="wizardGoStep('wizardStep1','wizardStepProvider')" class="w-full bg-blue-600 p-4 rounded-xl font-bold mt-4">Next: Choose WhatsApp Method →</button>
+                        </div>
+                    </div>
+
+                    <!-- Step 1.5: Provider selection -->
+                    <div id="wizardStepProvider" class="hidden">
+                        <h2 class="text-lg font-bold mb-4 text-green-400">Step 2: WhatsApp Connection</h2>
+                        <div class="space-y-4">
+                            <p class="text-gray-400 text-sm">How will this bot connect to WhatsApp?</p>
+                            <div class="grid grid-cols-2 gap-4">
+                                <button onclick="wizardSelectProvider('meta')" id="providerMeta"
+                                    class="p-5 rounded-xl border-2 border-gray-600 hover:border-blue-500 text-left transition-all">
+                                    <div class="text-2xl mb-2">📱</div>
+                                    <div class="font-bold">Meta Business API</div>
+                                    <div class="text-xs text-gray-400 mt-1">New dedicated number. Official Meta Cloud API.</div>
+                                </button>
+                                <button onclick="wizardSelectProvider('wwebjs')" id="providerWwebjs"
+                                    class="p-5 rounded-xl border-2 border-gray-600 hover:border-green-500 text-left transition-all">
+                                    <div class="text-2xl mb-2">📷</div>
+                                    <div class="font-bold">Own Number (QR Scan)</div>
+                                    <div class="text-xs text-gray-400 mt-1">Use your existing WhatsApp number. Scan QR like WhatsApp Web.</div>
+                                </button>
+                            </div>
+                            <button onclick="wizardGoStep('wizardStepProvider','wizardStep1')" class="w-full bg-gray-600 p-3 rounded-xl font-bold">Back</button>
+                        </div>
+                    </div>
+
+                    <!-- Step 2A: Meta API -->
+                    <div id="wizardStep2" class="hidden">
+                        <h2 class="text-lg font-bold mb-4 text-green-400">Step 3: WhatsApp Meta API</h2>
+                        <div class="space-y-4">
+                            <div><label class="block text-sm font-medium mb-1">Meta Access Token</label><input type="password" id="botNewToken" placeholder="EAA..." class="w-full bg-gray-700 p-3 rounded-xl border border-gray-600"></div>
+                            <div class="grid grid-cols-2 gap-4">
+                                <div><label class="block text-sm font-medium mb-1">Phone Number ID</label><input type="text" id="botNewPhoneId" class="w-full bg-gray-700 p-3 rounded-xl border border-gray-600"></div>
+                                <div><label class="block text-sm font-medium mb-1">WABA ID</label><input type="text" id="botNewWabaId" class="w-full bg-gray-700 p-3 rounded-xl border border-gray-600"></div>
+                            </div>
+                            <div class="flex gap-4 pt-6">
+                                <button onclick="wizardGoStep('wizardStep2','wizardStepProvider')" class="flex-1 bg-gray-600 p-4 rounded-xl font-bold">Back</button>
+                                <button onclick="deployBotWizard()" class="flex-[2] bg-green-600 p-4 rounded-xl font-bold text-lg hover:bg-green-700">Deploy Instance</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Step 2B: wwebjs / QR Scan -->
+                    <div id="wizardStepQR" class="hidden">
+                        <h2 class="text-lg font-bold mb-2 text-green-400">Step 3: Scan QR Code</h2>
+                        <div id="qrSetupForm" class="space-y-4">
+                            <p class="text-gray-400 text-sm">No Meta credentials needed. Just scan with your phone.</p>
+                            <div><label class="block text-sm font-medium mb-1">Business Name</label><input type="text" id="botNewBusinessName" placeholder="e.g. Pizza King Restaurant" class="w-full bg-gray-700 p-3 rounded-xl border border-gray-600"></div>
+                            <div><label class="block text-sm font-medium mb-1">Manager WhatsApp Number</label><input type="text" id="botNewManagerNumber" placeholder="923001234567" class="w-full bg-gray-700 p-3 rounded-xl border border-gray-600"></div>
+                            <div class="flex gap-4 pt-4">
+                                <button onclick="wizardGoStep('wizardStepQR','wizardStepProvider')" class="flex-1 bg-gray-600 p-4 rounded-xl font-bold">Back</button>
+                                <button onclick="deployWwebjsBot()" class="flex-[2] bg-green-600 p-4 rounded-xl font-bold text-lg hover:bg-green-700">Create & Get QR →</button>
+                            </div>
+                        </div>
+                        <div id="qrCodeArea" class="hidden text-center space-y-4 mt-4">
+                            <p class="text-yellow-400 font-bold" id="qrStatusText">⏳ Starting session…</p>
+                            <div id="qrCanvas" class="flex justify-center"></div>
+                            <p class="text-gray-400 text-xs">Open WhatsApp → Linked Devices → Link a Device → Scan this QR</p>
+                            <div id="qrConnected" class="hidden">
+                                <p class="text-green-400 font-bold text-lg">✅ Connected! Bot is live.</p>
+                                <button onclick="showTab('bot_list')" class="mt-4 w-full bg-green-600 p-3 rounded-xl font-bold">View All Bots →</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div id="tab-bot_assign" class="tab-content hidden p-6">
+                 <h1 class="text-2xl font-bold mb-6">Assign Bot to User</h1>
+                 <div class="bg-gray-800 p-6 rounded-xl border border-gray-700 max-w-md">
+                     <div class="space-y-4">
+                         <input id="assignUsername" placeholder="Username" class="w-full bg-gray-700 p-3 rounded-lg">
+                         <input id="assignBotName" placeholder="Bot Name" class="w-full bg-gray-700 p-3 rounded-lg">
+                         <button onclick="assignBot()" class="w-full bg-blue-600 p-3 rounded-lg font-bold">Perform Assignment</button>
+                         <div id="assignMsg"></div>
+                     </div>
+                 </div>
+            </div>
+
+            <div id="tab-agents" class="tab-content hidden p-6">
+                 <h1 class="text-2xl font-bold mb-6">Vapi Voice Agents</h1>
+                            <div id="agentsList" class="grid grid-cols-1 md:grid-cols-3 gap-6"></div>
+            </div>
+            
+            <div id="tab-calls" class="tab-content hidden p-6">
+                 <h1 class="text-2xl font-bold mb-6">Voice Call Logs</h1>
+                 <div class="bg-gray-800 rounded-xl border border-gray-700 overflow-hidden"><table class="w-full text-sm text-left"><thead class="bg-gray-700 text-gray-300"><tr><th class="p-4">Contact</th><th>Duration</th><th>Outcome</th><th>Time</th></tr></thead><tbody id="callsTable"></tbody></table></div>
+            </div>
+
+            <!-- TAB: Activity Log -->
+            <div id="tab-activity" class="tab-content hidden p-6">
+                <div class="flex justify-between items-center mb-6">
+                    <div>
+                        <h1 class="text-2xl font-bold">Activity Log</h1>
+                        <p class="text-gray-400 text-sm">Every admin action — logins, bot edits, config changes.</p>
+                    </div>
+                    <button onclick="loadActivityLog()" class="bg-slate-700 hover:bg-slate-600 px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2"><i class="fas fa-sync-alt"></i> Refresh</button>
+                </div>
+                <div class="bg-gray-800 rounded-xl overflow-hidden border border-gray-700">
+                    <table class="w-full text-sm text-left">
+                        <thead class="bg-gray-700 text-gray-300">
+                            <tr>
+                                <th class="p-4 w-44">Time</th>
+                                <th class="p-4 w-32">User</th>
+                                <th class="p-4 w-48">Action</th>
+                                <th class="p-4">Details</th>
+                            </tr>
+                        </thead>
+                        <tbody id="activityLogBody">
+                            <tr><td colspan="4" class="p-8 text-center text-gray-500">Loading...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- TAB: Plugins -->
+            <div id="tab-plugins" class="tab-content hidden p-6">
+                <div class="flex items-center justify-between mb-6">
+                    <h1 class="text-2xl font-bold">🧩 Bot Plugins</h1>
+                    <select id="pluginBotSelect" onchange="loadPluginsForBot(this.value)" class="bg-gray-700 p-2 rounded-lg text-white min-w-48">
+                        <option value="">— Select a Bot —</option>
+                    </select>
+                </div>
+                <p class="text-gray-400 text-sm mb-6">Plugins run before the main bot flow. Enable per-bot without touching any code.</p>
+                <div id="pluginsList" class="space-y-4"></div>
+            </div>
+
+            <div id="tab-ai" class="tab-content hidden p-6">
+                <h1 class="text-2xl font-bold mb-6">Intelligence Chat</h1>
+                <div class="bg-gray-800 rounded-xl h-[600px] flex flex-col border border-gray-700 shadow-2xl overflow-hidden">
+                    <div id="chatMessages" class="flex-1 overflow-y-auto p-6 space-y-4 bg-slate-900/50">
+                        <div class="flex justify-start">
+                            <div class="bg-slate-800 p-4 rounded-2xl rounded-tl-none border border-slate-700 max-w-[80%] text-sm text-slate-300">
+                                Hello! I'm your Wild CRM Assistant. How can I help you with your bots today?
+                            </div>
+                        </div>
+                    </div>
+                    <div class="p-4 bg-slate-800/50 border-t border-slate-700 flex gap-2">
+                        <input id="chatInput" onkeypress="if(event.key==='Enter') sendChat()" placeholder="Analyze my business data or ask about your bots..." class="flex-1 bg-slate-900 p-4 rounded-xl outline-none focus:ring-2 focus:ring-emerald-500 transition-all text-sm">
+                        <button onclick="sendChat()" id="btnSendChat" class="gradient-bg px-8 rounded-xl font-bold hover:opacity-90 transition-all shadow-lg shadow-emerald-500/20">Send</button>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+    </div>
+</div>
+
+<script>
+    const API_BASE = window.location.origin;
+    let authToken = localStorage.getItem("token");
+    let currentUser = null;
+    let currentUserRole = "user";
+    let currentConfig = { categories: [], rules: { tax: 8, delivery: 5, min_order: 20 } };
+    let activeCategoryId = null;
+    let _loggingOut = false;
+    let currentBotType = null;
+    let currentBotId = null;
+    let isDirty = false;
+    let currentTab = null;
+
+    function escHtml(s) {
+        return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+
+    async function apiCall(endpoint, method, body = null) {
+        const headers = { 'Content-Type': 'application/json' };
+        if (authToken) headers['Authorization'] = `Bearer ${authToken}`;
+        try {
+            const res = await fetch(`${API_BASE}${endpoint}`, { method, headers, body: body ? JSON.stringify(body) : null });
+            if (res.status === 401) {
+                if (!_loggingOut) { _loggingOut = true; logout(); }
+                throw new Error("Session expired. Please login again.");
+            }
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.detail || `HTTP ${res.status}`);
+            return data;
+        } catch (err) {
+            if (!err.message.includes('Session expired')) console.error(`API Error [${method} ${endpoint}]:`, err.message);
+            throw err;
+        }
+    }
+
+    async function login() {
+        const u = document.getElementById('loginUsername').value;
+        const p = document.getElementById('loginPassword').value;
+        try {
+            const d = await apiCall('/auth/login', 'POST', { username: u, password: p });
+            authToken = d.access_token;
+            localStorage.setItem('token', authToken);
+            location.reload();
+        } catch(e) {
+            document.getElementById('loginError').innerText = e.message;
+        }
+    }
+
+    async function loadUserAndDashboard() {
+        const user = await apiCall('/auth/me', 'GET');
+        currentUser = user;
+        currentUserRole = user.role || 'user';
+        document.getElementById('sidebarUser').innerText = user.username;
+        document.getElementById('userRoleBadge').innerHTML = `<span class="bg-${currentUserRole === 'admin' ? 'purple' : 'gray'}-600 px-2 py-0.5 rounded text-[10px] uppercase">${currentUserRole}</span>`;
+        if (currentUserRole === 'admin') document.getElementById('adminBotSection').classList.remove('hidden');
+        else document.getElementById('nonAdminBuilderSection').classList.remove('hidden');
+        document.getElementById('authContainer').classList.add('hidden');
+        document.getElementById('dashboardContainer').classList.remove('hidden');
+        showTab('dashboard');
+    }
+
+    async function loadAllBots() {
+        try { const bots = await apiCall('/api/crm/bots/whatsapp', 'GET');
+        document.getElementById('allBotsList').innerHTML = bots.map(b => `
+            <div class="bg-gray-800 p-5 rounded-xl border border-gray-700 flex flex-col hover:border-emerald-500 transition-all shadow-lg group">
+                <div class="flex justify-between items-start mb-4">
+                    <div>
+                        <div class="font-bold text-lg group-hover:text-emerald-400 transition-colors">${b.name}</div>
+                        <div class="text-[10px] text-gray-500 uppercase tracking-widest mt-0.5">${b.business_niche || 'General'} · ${b.bot_type}</div>
+                    </div>
+                    <div class="flex gap-1">
+                        <button onclick="event.stopPropagation(); duplicateBot(${b.id})" class="p-2 text-slate-500 hover:text-blue-400 transition-colors" title="Clone Bot"><i class="fas fa-copy"></i></button>
+                        <button onclick="event.stopPropagation(); deleteBot(${b.id})" class="p-2 text-slate-500 hover:text-rose-500 transition-colors" title="Delete"><i class="fas fa-trash"></i></button>
+                    </div>
+                </div>
+                <div class="flex flex-wrap gap-2 mt-auto">
+                    <button onclick="editBotInBuilder(${b.id})" class="flex-1 bg-slate-700 hover:bg-slate-600 px-3 py-2 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-2">
+                        <i class="fas fa-project-diagram"></i> Edit Flow
+                    </button>
+                    <button onclick="openCredentialsModal(${b.id})" class="flex-1 bg-emerald-600/10 text-emerald-400 hover:bg-emerald-600 hover:text-white px-3 py-2 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-2">
+                        <i class="fas fa-key"></i> Credentials
+                    </button>
+                    <button onclick="openBotLogs(${b.id}, '${b.name.replace(/'/g,"\\\'")}')" class="w-full bg-slate-800 hover:bg-blue-900/40 text-blue-400 px-3 py-2 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-2">
+                        <i class="fas fa-history"></i> View Logs
+                    </button>
+                </div>
+            </div>`).join('');
+        } catch(e) { console.error('loadAllBots:', e.message); }
+    }
+
+    let _allBotLogs = [];
+    let _currentBotLogsId = null;
+
+    const LOG_COLORS = {
+        MSG_IN:        { bg: 'bg-emerald-500/10', text: 'text-emerald-400', icon: 'fa-comment-alt' },
+        ORDER_CREATED: { bg: 'bg-blue-500/10',    text: 'text-blue-400',    icon: 'fa-receipt' },
+        CONFIG_UPDATED:{ bg: 'bg-yellow-500/10',  text: 'text-yellow-400',  icon: 'fa-sliders-h' },
+        BOT_CREATED:   { bg: 'bg-purple-500/10',  text: 'text-purple-400',  icon: 'fa-plus-circle' },
+        BOT_DUPLICATED:{ bg: 'bg-indigo-500/10',  text: 'text-indigo-400',  icon: 'fa-copy' },
+        BOT_DELETED:   { bg: 'bg-red-500/10',     text: 'text-red-400',     icon: 'fa-trash' },
+    };
+
+    async function openBotLogs(id, name) {
+        _currentBotLogsId = id;
+        _allBotLogs = [];
+        document.getElementById('botLogsTitle').innerText = name;
+        document.getElementById('botLogsFilter').value = '';
+        document.getElementById('botLogsBody').innerHTML = '<tr><td colspan="4" class="p-8 text-center text-slate-500"><i class="fas fa-spinner fa-spin mr-2"></i>Loading…</td></tr>';
+        document.getElementById('botLogsModal').classList.remove('hidden');
+        try {
+            _allBotLogs = await apiCall(`/api/crm/bots/whatsapp/${id}/event-logs`, 'GET');
+            renderBotLogs(_allBotLogs);
+        } catch(e) {
+            document.getElementById('botLogsBody').innerHTML = `<tr><td colspan="4" class="p-8 text-center text-red-400">${e.message}</td></tr>`;
+        }
+    }
+
+    function closeBotLogs() {
+        document.getElementById('botLogsModal').classList.add('hidden');
+    }
+
+    function filterBotLogs() {
+        const filter = document.getElementById('botLogsFilter').value;
+        const filtered = filter ? _allBotLogs.filter(l => l.event_type === filter || l.event_type.startsWith(filter)) : _allBotLogs;
+        renderBotLogs(filtered);
+    }
+
+    function renderBotLogs(logs) {
+        const tbody = document.getElementById('botLogsBody');
+        document.getElementById('botLogsCount').innerText = `${logs.length} event${logs.length !== 1 ? 's' : ''}`;
+        if (!logs.length) {
+            tbody.innerHTML = '<tr><td colspan="4" class="p-8 text-center text-slate-500">No events yet.</td></tr>';
+            return;
+        }
+        tbody.innerHTML = logs.map(l => {
+            const c = LOG_COLORS[l.event_type] || { bg: 'bg-slate-700/30', text: 'text-slate-400', icon: 'fa-circle' };
+            const dt = new Date(l.created_at);
+            const ts = dt.toLocaleDateString() + ' ' + dt.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit',second:'2-digit'});
+            const phone = l.customer_phone ? `<span class="font-mono text-xs text-slate-300">${l.customer_phone}</span>` : '<span class="text-slate-600">—</span>';
+            return `<tr class="border-b border-slate-800/60 hover:bg-slate-800/40 transition-colors">
+                <td class="p-3 text-xs text-slate-500 whitespace-nowrap font-mono">${ts}</td>
+                <td class="p-3">
+                    <span class="inline-flex items-center gap-1.5 px-2 py-1 rounded-md text-[10px] font-bold uppercase ${c.bg} ${c.text}">
+                        <i class="fas ${c.icon} text-[9px]"></i>${l.event_type.replace(/_/g,' ')}
+                    </span>
+                </td>
+                <td class="p-3">${phone}</td>
+                <td class="p-3 text-xs text-slate-400 max-w-xs truncate" title="${(l.details||'').replace(/"/g,'&quot;')}">${l.details || '—'}</td>
+            </tr>`;
+        }).join('');
+    }
+
+    // Close modal on backdrop click
+    document.getElementById('botLogsModal').addEventListener('click', function(e) {
+        if (e.target === this) closeBotLogs();
+    });
+
+    async function duplicateBot(id) {
+        if (!confirm('Clone this bot configuration? Meta tokens will not be copied for safety.')) return;
+        try {
+            await apiCall(`/api/crm/bots/whatsapp/${id}/duplicate`, 'POST');
+            loadAllBots();
+        } catch(e) { alert(e.message); }
+    }
+
+    async function openCredentialsModal(id) {
+        const bots = await apiCall('/api/crm/bots/whatsapp', 'GET');
+        const b = bots.find(bot => bot.id == id);
+        if (!b) return;
+        document.getElementById('editCredBotId').value = b.id;
+        document.getElementById('editCredName').value = b.name;
+        document.getElementById('editCredToken').value = ''; // Don't show masked/real token for security
+        document.getElementById('editCredPhoneId').value = b.phone_number_id || '';
+        document.getElementById('editCredWabaId').value = b.waba_id || '';
+        document.getElementById('editCredForward').value = b.forwarding_url || '';
+        document.getElementById('credentialsModal').classList.remove('hidden');
+    }
+
+    function closeCredentialsModal() {
+        document.getElementById('credentialsModal').classList.add('hidden');
+    }
+
+    async function saveBotCredentials() {
+        const id = document.getElementById('editCredBotId').value;
+        const payload = {
+            name: document.getElementById('editCredName').value.trim(),
+            phone_number_id: document.getElementById('editCredPhoneId').value.trim(),
+            waba_id: document.getElementById('editCredWabaId').value.trim(),
+            forwarding_url: document.getElementById('editCredForward').value.trim()
+        };
+        
+        const token = document.getElementById('editCredToken').value.trim();
+        if (token) payload.meta_token = token;
+
+        try {
+            await apiCall(`/api/crm/bots/whatsapp/${id}`, 'PUT', payload);
+            closeCredentialsModal();
+            loadAllBots();
+        } catch(e) { alert(e.message); }
+    }
+
+    function editBotInBuilder(id) {
+        localStorage.setItem('target_bot_id', id);
+        showTab('builder');
+    }
+
+    async function loadBuilderBots() {
+        try {
+            const bots = await apiCall('/api/crm/bots/whatsapp', 'GET');
+            const select = document.getElementById('builderBotSelect');
+            select.innerHTML = '<option value="">Select Bot to Configure</option>' + bots.map(b => `<option value="${b.id}">${b.name}</option>`).join('');
+            const target = localStorage.getItem('target_bot_id');
+            if (target) { select.value = target; loadBotBuilder(target); localStorage.removeItem('target_bot_id'); }
+            select.onchange = (e) => { trackActivity('UI_BOT_SELECT', `Bot ID: ${e.target.value}`); loadBotBuilder(e.target.value); };
+        } catch(e) { console.error('loadBuilderBots:', e.message); }
+    }
+
+    async function loadBotBuilder(id) {
+        if (isDirty && !confirm('Unsaved changes will be lost. Continue?')) {
+            const select = document.getElementById('builderBotSelect');
+            if (select) select.value = currentBotId || '';
+            return;
+        }
+        if (!id) { document.getElementById('builderWorkspace').classList.add('opacity-30', 'pointer-events-none'); return; }
+        document.getElementById('builderWorkspace').classList.remove('opacity-30', 'pointer-events-none');
+        try {
+            const bots = await apiCall('/api/crm/bots/whatsapp', 'GET');
+            const bot = bots.find(b => b.id == id);
+            if (!bot) { console.error('Bot not found:', id); return; }
+            currentBotType = bot.bot_type;
+            currentBotId = id;
+            isDirty = false;
+            currentConfig = JSON.parse(bot.config_json || '{}');
+            if (!currentConfig.categories) currentConfig.categories = [];
+            if (!currentConfig.rules) currentConfig.rules = { tax: 8, delivery: 5, min_order: 20 };
+            // Backfill includes_text from includes array for display
+            if (currentConfig.deal_rules) {
+                Object.values(currentConfig.deal_rules).forEach(r => {
+                    if (r.includes && !r.includes_text) {
+                        r.includes_text = r.includes.map(i => (typeof i === 'string' ? i : i.name)).join(', ');
+                    }
+                });
+            }
+
+            if (bot.bot_type === 'restaurant') {
+                document.getElementById('restaurantBuilderNav').classList.remove('hidden');
+                document.getElementById('nicheBuilderNav').classList.add('hidden');
+                document.getElementById('categoryHeader').classList.add('hidden');
+                document.getElementById('nicheEditor').classList.add('hidden');
+                // Auto-import effective menu when no categories saved yet
+                if (currentConfig.categories.length === 0) {
+                    try {
+                        const eff = await apiCall(`/api/crm/bots/whatsapp/${id}/effective-menu`, 'GET');
+                        if (eff.categories && eff.categories.length > 0) {
+                            currentConfig.categories = eff.categories;
+                        }
+                    } catch(e) { console.warn('effective-menu fetch failed:', e.message); }
+                }
+            } else {
+                document.getElementById('restaurantBuilderNav').classList.add('hidden');
+                document.getElementById('nicheBuilderNav').classList.remove('hidden');
+                document.getElementById('categoryHeader').classList.add('hidden');
+                document.getElementById('nicheEditor').classList.add('hidden');
+                document.getElementById('nicheConfigJson').value = JSON.stringify(currentConfig, null, 2);
+            }
+
+            document.getElementById('ruleTax').value = bot.tax_rate || 0;
+            document.getElementById('ruleDelivery').value = bot.delivery_fee || 0;
+            document.getElementById('ruleMinOrder').value = currentConfig.rules.min_order || 0;
+            document.getElementById('botSystemPrompt').value = bot.system_prompt || '';
+            const ur = currentConfig.upsell_rules || {};
+            document.getElementById('upsellBurgerCombo').checked = ur.burger_combo !== false;
+            document.getElementById('upsellPizzaWings').checked = ur.pizza_wings !== false;
+            document.getElementById('upsellDesserts').checked = ur.desserts !== false;
+
+            // Auto-populate deal_rules for restaurant bots if missing
+            if (bot.bot_type === 'restaurant' && !currentConfig.deal_rules) {
+                const cats = currentConfig.categories || [];
+                const ffCat = cats.find(c => (c.prefix||'').toUpperCase() === 'FF' || c.name.toLowerCase().includes('burger'));
+                const pzCat = cats.find(c => (c.prefix||'').toUpperCase() === 'PZ' || c.name.toLowerCase().includes('pizza'));
+                const ffKey = ffCat ? ffCat.id.replace('cat_', '') : 'fastfood';
+                const pzKey = pzCat ? pzCat.id.replace('cat_', '') : 'pizza';
+                const dealsCat = cats.find(c => (c.prefix||'').toUpperCase() === 'DL' || c.name.toLowerCase().includes('deal'));
+                if (dealsCat) {
+                    const items = dealsCat.items || [];
+                    const prefix = (dealsCat.prefix || 'DL').toUpperCase();
+                    const rules = {};
+                    const ruleTemplates = [
+                        { requires: ['burger_in_cart'] },
+                        { picks: [ffKey] },
+                        { picks: [pzKey] },
+                        { picks: [pzKey, pzKey] },
+                        { picks: ['2sides'] },
+                        { picks: [ffKey, ffKey, pzKey] }
+                    ];
+                    items.forEach((item, idx) => {
+                        const dealId = item.id || `${prefix}${idx + 1}`;
+                        if (ruleTemplates[idx]) rules[dealId] = ruleTemplates[idx];
+                    });
+                    if (Object.keys(rules).length > 0) {
+                        currentConfig.deal_rules = rules;
+                        isDirty = true;
+                    }
+                }
+            }
+            
+            activeCategoryId = null;
+            renderCategories();
+            document.getElementById('noCategorySelected').classList.remove('hidden');
+        } catch(e) { console.error('loadBotBuilder:', e.message); }
+    }
+
+    function selectNicheConfig() {
+        document.getElementById('noCategorySelected').classList.add('hidden');
+        document.getElementById('nicheEditor').classList.remove('hidden');
+        document.getElementById('nicheEditorTitle').innerText = 'Data Source: ' + document.getElementById('builderBotSelect').options[document.getElementById('builderBotSelect').selectedIndex].text;
+    }
+
+    function formatNicheJson() {
+        try {
+            const el = document.getElementById('nicheConfigJson');
+            el.value = JSON.stringify(JSON.parse(el.value), null, 2);
+        } catch(e) { alert('Invalid JSON: ' + e.message); }
+    }
+
+    function renderCategories() {
+        const el = document.getElementById('builderCategories');
+        if (!currentConfig.categories || currentConfig.categories.length === 0) {
+            el.innerHTML = '<div class="text-center py-8 text-slate-600 text-xs italic">No sections created yet</div>';
+            return;
+        }
+        el.innerHTML = currentConfig.categories.map(cat => {
+            let badge = '';
+            if (cat.type === 'upsell') badge = '<span class="ml-auto text-[8px] bg-blue-500/20 text-blue-400 px-1.5 py-0.5 rounded font-bold uppercase">Upsell</span>';
+            if (cat.type === 'deal') badge = '<span class="ml-auto text-[8px] bg-orange-500/20 text-orange-400 px-1.5 py-0.5 rounded font-bold uppercase">Deal</span>';
+            if (cat.type === 'drinks') badge = '<span class="ml-auto text-[8px] bg-cyan-500/20 text-cyan-400 px-1.5 py-0.5 rounded font-bold uppercase">Drink</span>';
+            
+            return `
+            <button onclick="selectCategory('${cat.id}')" class="sidebar-btn w-full text-left px-3 py-2 rounded-lg transition-all flex items-center ${activeCategoryId === cat.id ? 'active' : ''}">
+                <i class="fas fa-folder w-5"></i> 
+                <span class="truncate">${cat.name}</span>
+                ${badge}
+            </button>`;
+        }).join('');
+    }
+
+    function selectCategory(id) {
+        activeCategoryId = id;
+        const cat = currentConfig.categories.find(c => c.id === id);
+        if (!cat) return;
+        
+        document.getElementById('currentCategoryName').innerText = cat.name;
+        document.getElementById('noCategorySelected').classList.add('hidden');
+        document.getElementById('categoryHeader').classList.remove('hidden');
+        
+        // Load Category Settings
+        document.getElementById('catTypeSelect').value = cat.type || 'normal';
+        document.getElementById('catPrefixInput').value = cat.prefix || '';
+        document.getElementById('catDisplaySelect').value = cat.display || 'list';
+        
+        renderCategories();
+        renderItems();
+    }
+
+    function updateCategorySetting(field, value) {
+        const cat = currentConfig.categories.find(c => c.id === activeCategoryId);
+        if (cat) {
+            cat[field] = value;
+            renderCategories(); 
+            if (field === 'type' || field === 'prefix') renderDealRulesUI();
+        }
+    }
+
+    function renderItems() {
+        const cat = currentConfig.categories.find(c => c.id === activeCategoryId);
+        if (!cat) return;
+        const el = document.getElementById('builderItems');
+        if (!cat.items || cat.items.length === 0) {
+            el.innerHTML = '<div class="col-span-full text-center py-20 text-slate-600"><i class="fas fa-shopping-basket text-5xl mb-4 block opacity-10"></i>This section is empty. Add your first product!</div>';
+            return;
+        }
+        el.innerHTML = cat.items.map((item, idx) => `
+            <div class="card-premium p-5 group hover:border-emerald-500/50 transition-all animate-slide-in relative flex flex-col h-full">
+                <div class="flex justify-between items-start mb-4">
+                    <div class="relative group/emoji">
+                        <input type="text" value="${escHtml(item.emoji || '🍕')}" oninput="updateItem(${idx}, 'emoji', this.value)" class="bg-slate-900 w-10 h-10 rounded-lg text-xl flex items-center justify-center border border-slate-700 outline-none focus:border-emerald-500 text-center cursor-pointer">
+                        <div class="absolute -top-8 left-0 bg-slate-800 text-[9px] px-2 py-1 rounded opacity-0 group-hover/emoji:opacity-100 transition-opacity whitespace-nowrap pointer-events-none">Change Emoji</div>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <span class="text-[10px] font-mono text-slate-500">${(cat.prefix||'ITEM')}${idx+1}</span>
+                        <button onclick="deleteItem(${idx})" class="text-slate-600 hover:text-rose-500 transition-colors p-1"><i class="fas fa-trash-alt text-xs"></i></button>
+                    </div>
+                </div>
+
+                <div class="space-y-3 flex-grow">
+                    <div class="group">
+                        <label class="block text-[9px] font-bold text-slate-500 uppercase mb-1">Product Name</label>
+                        <input type="text" value="${escHtml(item.name)}" oninput="updateItem(${idx}, 'name', this.value)" class="bg-slate-900/50 border border-slate-800 rounded-lg w-full text-sm p-2 text-white outline-none focus:border-emerald-500 transition-all" placeholder="e.g. Classic Burger">
+                    </div>
+
+                    <div class="group">
+                        <label class="block text-[9px] font-bold text-slate-500 uppercase mb-1">Price ($)</label>
+                        <input type="number" step="0.01" value="${escHtml(item.price)}" oninput="updateItem(${idx}, 'price', this.value)" class="bg-slate-900/50 border border-slate-800 rounded-lg w-full text-sm p-2 text-emerald-400 font-bold outline-none focus:border-emerald-500 transition-all">
+                    </div>
+
+                    <div class="group">
+                        <label class="block text-[9px] font-bold text-slate-500 uppercase mb-1">Description</label>
+                        <textarea oninput="updateItem(${idx}, 'desc', this.value)" class="bg-slate-900/50 border border-slate-800 rounded-lg w-full text-xs p-2 text-slate-400 h-16 outline-none focus:border-emerald-500 transition-all resize-none" placeholder="What makes this item special?">${escHtml(item.desc || '')}</textarea>
+                    </div>
+                </div>
+
+                <div class="mt-4 pt-4 border-t border-slate-700/50">
+                    <div class="flex justify-between items-center mb-2">
+                        <label class="block text-[9px] font-bold text-slate-500 uppercase">Add-ons & Extras</label>
+                        <i class="fas fa-info-circle text-[10px] text-slate-600 cursor-help" title="Format: Name:+Price (e.g. Cheese:+1.5)"></i>
+                    </div>
+                    <input type="text" value="${escHtml(item.addons || '')}" oninput="updateItem(${idx}, 'addons', this.value)" class="bg-slate-900/30 border border-slate-700 rounded-lg w-full text-[10px] p-2 text-slate-300 focus:border-emerald-500 outline-none transition-all" placeholder="Cheese:+1.5, Bacon:+2.0">
+                </div>
+
+                ${cat.type === 'deal' ? `
+                <div class="mt-3 pt-3 border-t border-emerald-500/20 bg-emerald-500/5 -mx-5 -mb-5 p-5 rounded-b-xl">
+                    <div class="mb-3">
+                        <label class="block text-[9px] font-bold text-yellow-400 uppercase mb-1">🎁 Includes (auto-added items)</label>
+                        <input type="text"
+                            value="${escHtml(((currentConfig.deal_rules||{})[((cat.prefix||'DL')+(idx+1))]||{}).includes_text||'')}"
+                            oninput="updateDealIncludes('${(cat.prefix||'DL')}${idx+1}', this.value)"
+                            class="bg-slate-900/30 border border-yellow-500/30 rounded-lg w-full text-[10px] p-2 text-yellow-300 focus:border-yellow-500 outline-none transition-all"
+                            placeholder="Fries, Drink, Sauce (comma-separated)">
+                        <div class="text-[9px] text-slate-500 mt-1">Items always added to the order when this deal is selected.</div>
+                    </div>
+                    <div class="flex justify-between items-center mb-3">
+                        <label class="block text-[9px] font-bold text-emerald-400 uppercase">Sequence of Logic</label>
+                        <div class="flex gap-1">
+                            <button onclick="addDealStep('${(cat.prefix||'DL')}${idx+1}', 'must_have')" class="text-[9px] bg-emerald-500 text-white px-2 py-1 rounded hover:bg-emerald-600 transition-all"><i class="fas fa-lock mr-1"></i>+ Must Have</button>
+                            <button onclick="addDealStep('${(cat.prefix||'DL')}${idx+1}', 'pick')" class="text-[9px] bg-slate-800 text-emerald-400 px-2 py-1 rounded border border-emerald-500/30 hover:bg-emerald-500 hover:text-white transition-all"><i class="fas fa-hand-pointer mr-1"></i>+ Pick Item</button>
+                        </div>
+                    </div>
+                    <div class="space-y-2" id="dealSteps_${(cat.prefix||'DL')}${idx+1}">
+                        ${renderDealStepsUI((cat.prefix||'DL')+(idx+1))}
+                    </div>
+                </div>
+                ` : ''}
+            </div>`).join('');
+    }
+
+    function addCategory() {
+        const name = prompt('Enter name for the new section (e.g. Desserts):');
+        if (!name) return;
+        if (!currentConfig.categories) currentConfig.categories = [];
+        const newCat = { id: 'cat_' + Date.now(), name, items: [] };
+        currentConfig.categories.push(newCat);
+        isDirty = true;
+        renderCategories();
+        selectCategory(newCat.id);
+    }
+
+    function editCategoryName() {
+        const cat = currentConfig.categories.find(c => c.id === activeCategoryId);
+        if (!cat) return;
+        const newName = prompt('Edit section name:', cat.name);
+        if (newName) {
+            cat.name = newName;
+            document.getElementById('currentCategoryName').innerText = newName;
+            renderCategories();
+        }
+    }
+
+    function deleteCategory() {
+        if (!confirm('Are you sure you want to delete this entire section and all its products?')) return;
+        currentConfig.categories = currentConfig.categories.filter(c => c.id !== activeCategoryId);
+        activeCategoryId = null;
+        document.getElementById('categoryHeader').classList.add('hidden');
+        document.getElementById('noCategorySelected').classList.remove('hidden');
+        renderCategories();
+    }
+
+    function addItem() {
+        const cat = currentConfig.categories.find(c => c.id === activeCategoryId);
+        if (!cat) return;
+        if (!cat.items) cat.items = [];
+        const uid = 'item_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6);
+        cat.items.push({ id: uid, name: '', price: 0, desc: '', emoji: '📦', addons: '' });
+        isDirty = true;
+        renderItems();
+    }
+
+    function updateItem(idx, field, value) {
+        const cat = currentConfig.categories.find(c => c.id === activeCategoryId);
+        if (cat && cat.items[idx]) {
+            cat.items[idx][field] = (field === 'price') ? parseFloat(value) : value;
+            isDirty = true;
+        }
+    }
+
+    function renderDealStepsUI(dealId) {
+        const rules = currentConfig.deal_rules || {};
+        const r = rules[dealId] || {};
+        const steps = [];
+        
+        let requires = r.requires || [];
+        if (typeof requires === 'string') requires = [requires];
+        requires.forEach(req => steps.push({ type: 'must_have', val: req }));
+        
+        (r.picks || []).forEach(p => steps.push({ type: 'pick', val: p }));
+
+        if (steps.length === 0) return '<div class="text-[10px] text-slate-500 italic">No special logic. Instant add.</div>';
+
+        return steps.map((s, i) => {
+            if (s.type === 'must_have') {
+                return `
+                <div class="flex gap-2 items-center">
+                    <div class="bg-emerald-500 border border-emerald-400 text-[10px] text-white w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0"><i class="fas fa-lock text-[8px]"></i></div>
+                    <div class="flex-1 flex gap-1 items-center bg-slate-950 border border-emerald-500/30 rounded-lg p-1">
+                        <span class="text-[9px] text-slate-500 px-1 font-bold uppercase">Must have:</span>
+                        <input type="text" value="${escHtml(s.val === 'burger_in_cart' ? 'Burger' : s.val)}" onchange="updateDealStepValue('${dealId}', ${i}, this.value)" class="flex-1 bg-transparent border-none text-[10px] text-emerald-400 outline-none p-1" placeholder="e.g. Pizza">
+                    </div>
+                    <button onclick="removeDealStep('${dealId}', ${i})" class="text-rose-500/50 hover:text-rose-500 p-1"><i class="fas fa-times-circle"></i></button>
+                </div>`;
+            }
+            return `
+            <div class="flex gap-2 items-center">
+                <div class="bg-slate-950/50 border border-emerald-500/20 text-[10px] text-slate-400 w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0">${i+1}</div>
+                <select onchange="updateDealStepValue('${dealId}', ${i}, this.value)" class="flex-1 bg-slate-950 border border-emerald-500/30 text-[10px] text-emerald-400 p-1.5 rounded-lg outline-none focus:border-emerald-500 cursor-pointer">
+                    ${currentConfig.categories.filter(c => c.type !== 'deal').map(c => `
+                        <option value="${c.id.replace('cat_','')}" ${s.val===c.id.replace('cat_','') ? 'selected' : ''}>✨ Pick from: ${c.name}</option>
+                    `).join('')}
+                </select>
+                <button onclick="removeDealStep('${dealId}', ${i})" class="text-rose-500/50 hover:text-rose-500 p-1"><i class="fas fa-times-circle"></i></button>
+            </div>`;
+        }).join('');
+    }
+
+    function updateDealIncludes(dealId, val) {
+        if (!currentConfig.deal_rules) currentConfig.deal_rules = {};
+        if (!currentConfig.deal_rules[dealId]) currentConfig.deal_rules[dealId] = {};
+        const r = currentConfig.deal_rules[dealId];
+        r.includes_text = val;
+        r.includes = val.split(',').map(s => s.trim()).filter(Boolean).map(name => ({ name }));
+        isDirty = true;
+    }
+
+    function addDealStep(dealId, type = 'pick') {
+        if (!currentConfig.deal_rules) currentConfig.deal_rules = {};
+        if (!currentConfig.deal_rules[dealId]) currentConfig.deal_rules[dealId] = { picks: [] };
+        
+        const r = currentConfig.deal_rules[dealId];
+        if (type === 'must_have') {
+            if (!r.requires) r.requires = [];
+            if (typeof r.requires === 'string') r.requires = [r.requires];
+            r.requires.push('Pizza');
+        } else {
+            if (!r.picks) r.picks = [];
+            r.picks.push('fastfood');
+        }
+        isDirty = true;
+        renderItems();
+    }
+
+    function removeDealStep(dealId, idx) {
+        const r = currentConfig.deal_rules[dealId];
+        if (!r) return;
+        
+        let steps = [];
+        let requires = r.requires || [];
+        if (typeof requires === 'string') requires = [requires];
+        requires.forEach(req => steps.push({ type: 'must_have', val: req }));
+        (r.picks || []).forEach(p => steps.push({ type: 'pick', val: p }));
+        
+        steps.splice(idx, 1);
+        
+        // Re-construct rule
+        r.requires = [];
+        r.picks = [];
+        steps.forEach(s => {
+            if (s.type === 'must_have') r.requires.push(s.val);
+            else r.picks.push(s.val);
+        });
+        
+        if (r.requires.length === 0) delete r.requires;
+        if (r.picks.length === 0) delete r.picks;
+        if (!r.requires && !r.picks) delete currentConfig.deal_rules[dealId];
+        
+        isDirty = true;
+        renderItems();
+    }
+
+    function updateDealStepValue(dealId, idx, val) {
+        const r = currentConfig.deal_rules[dealId];
+        let steps = [];
+        let requires = r.requires || [];
+        if (typeof requires === 'string') requires = [requires];
+        requires.forEach(req => steps.push({ type: 'must_have', val: req }));
+        (r.picks || []).forEach(p => steps.push({ type: 'pick', val: p }));
+        
+        steps[idx].val = val;
+        
+        // Re-construct rule
+        r.requires = [];
+        r.picks = [];
+        steps.forEach(s => {
+            if (s.type === 'must_have') r.requires.push(s.val);
+            else r.picks.push(s.val);
+        });
+        isDirty = true;
+    }
+
+    function deleteItem(idx) {
+        const cat = currentConfig.categories.find(c => c.id === activeCategoryId);
+        if (cat) {
+            cat.items.splice(idx, 1);
+            isDirty = true;
+            renderItems();
+        }
+    }
+
+    async function saveBotConfig() {
+        const botId = document.getElementById('builderBotSelect').value;
+        if (!botId) { alert('Please select a bot first.'); return; }
+        
+        const btn = document.getElementById('btnSaveConfig');
+        const span = btn.querySelector('span');
+        const originalText = span.innerText;
+        
+        btn.disabled = true;
+        span.innerText = "Deploying...";
+        
+        const tax_rate = parseFloat(document.getElementById('ruleTax').value || 0);
+        const delivery_fee = parseFloat(document.getElementById('ruleDelivery').value || 0);
+        const system_prompt = document.getElementById('botSystemPrompt').value;
+
+        if (currentBotType !== 'restaurant') {
+            try {
+                currentConfig = JSON.parse(document.getElementById('nicheConfigJson').value);
+            } catch(e) {
+                alert('Invalid JSON in Knowledge Base. Please fix before saving.');
+                btn.disabled = false; span.innerText = originalText;
+                return;
+            }
+        }
+
+        currentConfig.rules = {
+            tax: tax_rate,
+            delivery: delivery_fee,
+            min_order: parseFloat(document.getElementById('ruleMinOrder').value || 0)
+        };
+
+        currentConfig.upsell_rules = {
+            burger_combo: document.getElementById('upsellBurgerCombo').checked,
+            pizza_wings: document.getElementById('upsellPizzaWings').checked,
+            desserts: document.getElementById('upsellDesserts').checked,
+        };
+
+        // Note: deal_rules are updated in real-time via updateDealRule dropdowns
+
+        // Normalize item IDs to PREFIX+index so flow.py prefix checks work (FF1, PZ1, DR1, etc.)
+        if (currentConfig.categories) {
+            currentConfig.categories.forEach(cat => {
+                const prefix = (cat.prefix || 'IT').toUpperCase();
+                (cat.items || []).forEach((item, idx) => {
+                    item.id = `${prefix}${idx + 1}`;
+                });
+            });
+        }
+
+        try {
+            await apiCall(`/api/crm/bots/whatsapp/${botId}`, 'PUT', {
+                config_json: JSON.stringify(currentConfig),
+                tax_rate: tax_rate,
+                delivery_fee: delivery_fee,
+                system_prompt: system_prompt
+            });
+            isDirty = false;
+            alert('🚀 Changes Synced! Your bot is now using the updated menu and logic.');
+        } catch(e) {
+            alert('Error saving config: ' + e.message); 
+        } finally { 
+            span.innerText = originalText; 
+            btn.disabled = false; 
+        }
+    }
+
+    function logout() { localStorage.removeItem('token'); location.reload(); }
+    function copyText(id) { navigator.clipboard.writeText(document.getElementById(id).innerText); alert('Copied!'); }
+
+    function showTab(tabName) {
+        if (isDirty && currentTab === 'builder' && tabName !== 'builder' && !confirm('Unsaved changes will be lost. Continue?')) return;
+        if (tabName !== 'builder') isDirty = false;
+        currentTab = tabName;
+        document.querySelectorAll('.tab-content').forEach(el => el.classList.add('hidden'));
+        document.getElementById('tab-' + tabName)?.classList.remove('hidden');
+        document.querySelectorAll('.sidebar-btn').forEach(btn => {
+            btn.classList.remove('bg-gray-700','text-green-400');
+            if (btn.getAttribute('data-tab') === tabName) btn.classList.add('bg-gray-700','text-green-400');
+        });
+        if (tabName === 'dashboard') loadDashboardOverview();
+        if (tabName === 'bot_list') loadAllBots();
+        if (tabName === 'builder') loadBuilderBots();
+        if (tabName === 'users') loadUsersPage();
+        if (tabName === 'webhook') loadWebhookUrls();
+        if (tabName === 'agents') loadAgents();
+        if (tabName === 'calls') loadCalls();
+        if (tabName === 'contacts') loadContacts();
+        if (tabName === 'reservations') loadReservations();
+        if (tabName === 'pipeline') loadPipeline();
+        if (tabName === 'settings') loadSettings();
+        if (tabName === 'activity') loadActivityLog();
+        if (tabName === 'plugins') loadPluginsTab();
+        trackActivity('UI_NAV', `Navigated to: ${tabName}`);
+    }
+
+    function wizardGoStep(hideId, showId) {
+        document.getElementById(hideId).classList.add('hidden');
+        document.getElementById(showId).classList.remove('hidden');
+    }
+
+    function wizardSelectProvider(provider) {
+        document.getElementById('providerMeta').classList.remove('border-blue-500','border-green-500');
+        document.getElementById('providerWwebjs').classList.remove('border-blue-500','border-green-500');
+        if (provider === 'meta') {
+            document.getElementById('providerMeta').classList.add('border-blue-500');
+            wizardGoStep('wizardStepProvider', 'wizardStep2');
+        } else {
+            document.getElementById('providerWwebjs').classList.add('border-green-500');
+            wizardGoStep('wizardStepProvider', 'wizardStepQR');
+        }
+    }
+
+    async function deployBotWizard() {
+        const payload = {
+            name: document.getElementById('botNewName').value.trim(),
+            bot_type: document.getElementById('botNewType').value,
+            meta_token: document.getElementById('botNewToken').value.trim(),
+            phone_number_id: document.getElementById('botNewPhoneId').value.trim(),
+            waba_id: document.getElementById('botNewWabaId').value.trim(),
+            verify_token: 'WHATSAPP_TOKEN_' + Math.random().toString(36).substring(7).toUpperCase()
+        };
+        if (!payload.name || !payload.meta_token) { alert('Name and Token are required'); return; }
+        try {
+            await apiCall('/api/crm/bots/whatsapp', 'POST', payload);
+            alert('🚀 Bot Deployed Successfully!');
+            wizardGoStep('wizardStep2', 'wizardStep1');
+            showTab('bot_list');
+        } catch(e) { alert(e.message); }
+    }
+
+    let _qrPollTimer = null;
+
+    async function deployWwebjsBot() {
+        const name    = document.getElementById('botNewName').value.trim();
+        const type    = document.getElementById('botNewType').value;
+        const biz     = document.getElementById('botNewBusinessName').value.trim();
+        const manager = document.getElementById('botNewManagerNumber').value.trim();
+        if (!name) { alert('Bot name is required'); return; }
+
+        try {
+            // Create bot record
+            const res = await apiCall('/cms/bots/wwebjs/create', 'POST', {
+                name, bot_type: type, business_name: biz, manager_number: manager
+            });
+            const botId = res.bot_id;
+
+            // Show QR area
+            document.getElementById('qrSetupForm').classList.add('hidden');
+            document.getElementById('qrCodeArea').classList.remove('hidden');
+            document.getElementById('qrStatusText').textContent = '⏳ Starting session…';
+
+            // Start session
+            await apiCall(`/cms/bots/wwebjs/${botId}/start-session`, 'POST', {});
+
+            // Poll for QR
+            _qrPollTimer = setInterval(async () => {
+                try {
+                    const qrRes = await apiCall(`/cms/bots/wwebjs/${botId}/qr`, 'GET');
+                    if (qrRes.status === 'CONNECTED') {
+                        clearInterval(_qrPollTimer);
+                        document.getElementById('qrStatusText').textContent = '';
+                        document.getElementById('qrCanvas').innerHTML = '';
+                        document.getElementById('qrConnected').classList.remove('hidden');
+                        return;
+                    }
+                    if (qrRes.qr) {
+                        document.getElementById('qrStatusText').textContent = '📷 Scan with WhatsApp';
+                        // Render QR as text fallback (qrcode.js not loaded — use data URI via API)
+                        document.getElementById('qrCanvas').innerHTML =
+                            `<img src="https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(qrRes.qr)}" class="rounded-xl">`;
+                    } else {
+                        document.getElementById('qrStatusText').textContent = '⏳ Waiting for QR… (' + (qrRes.status||'') + ')';
+                    }
+                } catch(e) { /* retry next tick */ }
+            }, 3000);
+
+        } catch(e) { alert(e.message); }
+    }
+
+    // ── Register ─────────────────────────────────────────────────────────────
+    async function register() {
+        const u = document.getElementById('regUsername').value.trim();
+        const p = document.getElementById('regPassword').value;
+        const errEl = document.getElementById('registerError');
+        if (!u || !p) { errEl.innerText = 'Fill all fields'; return; }
+        try {
+            await apiCall('/cms/register','POST',{username:u, password:p});
+            errEl.style.color='#10b981';
+            errEl.innerText = '✅ Registered! Please login.';
+        } catch(e) { errEl.style.color='#ef4444'; errEl.innerText = e.message; }
+    }
+    document.getElementById('loginTabBtn').onclick = () => {
+        document.getElementById('loginForm').classList.remove('hidden');
+        document.getElementById('registerForm').classList.add('hidden');
+        document.getElementById('loginTabBtn').className='flex-1 py-2 text-center font-semibold text-green-400 border-b-2 border-green-400';
+        document.getElementById('registerTabBtn').className='flex-1 py-2 text-center font-semibold text-gray-400';
+    };
+    document.getElementById('registerTabBtn').onclick = () => {
+        document.getElementById('registerForm').classList.remove('hidden');
+        document.getElementById('loginForm').classList.add('hidden');
+        document.getElementById('registerTabBtn').className='flex-1 py-2 text-center font-semibold text-green-400 border-b-2 border-green-400';
+        document.getElementById('loginTabBtn').className='flex-1 py-2 text-center font-semibold text-gray-400';
+    };
+
+    // ── Contacts ─────────────────────────────────────────────────────────────
+    async function loadReservations() {
+        const tbody = document.getElementById('reservationsTable');
+        try {
+            const rows = await apiCall('/api/crm/reservations', 'GET');
+            const statusColors = { Pending: 'bg-yellow-600', Confirmed: 'bg-green-600', Cancelled: 'bg-red-600', Completed: 'bg-gray-600' };
+            tbody.innerHTML = rows.length ? rows.map(r => `
+                <tr class="border-b border-gray-700 hover:bg-gray-700/50">
+                    <td class="p-4 font-medium">${r.customer_name||'-'}</td>
+                    <td class="p-3 text-gray-400">${r.customer_phone||'-'}</td>
+                    <td class="p-3">${r.reservation_date||'-'}</td>
+                    <td class="p-3">${r.reservation_time||'-'}</td>
+                    <td class="p-3 text-center">${r.party_size||'-'}</td>
+                    <td class="p-3"><span class="px-2 py-1 rounded-full text-xs ${statusColors[r.status]||'bg-gray-600'}">${r.status}</span></td>
+                    <td class="p-3 flex gap-2">
+                        <button onclick="updateReservation(${r.id},'Confirmed')" class="text-xs bg-green-700 hover:bg-green-600 px-2 py-1 rounded">✓ Confirm</button>
+                        <button onclick="updateReservation(${r.id},'Cancelled')" class="text-xs bg-red-700 hover:bg-red-600 px-2 py-1 rounded">✕ Cancel</button>
+                    </td>
+                </tr>`).join('')
+            : '<tr><td colspan="7" class="p-8 text-center text-gray-500">No reservations yet.</td></tr>';
+        } catch(e) {
+            tbody.innerHTML = `<tr><td colspan="7" class="p-8 text-center text-red-400">${e.message}</td></tr>`;
+        }
+    }
+    async function updateReservation(id, status) {
+        try { await apiCall('/api/crm/reservations/'+id, 'PATCH', {status}); loadReservations(); }
+        catch(e) { alert(e.message); }
+    }
+
+    async function loadContacts() {
+        const contacts = await apiCall('/api/crm/contacts','GET');
+        const statuses = {'Hot Lead':'bg-red-500','Warm':'bg-yellow-500','New':'bg-blue-500','Cold':'bg-gray-500'};
+        document.getElementById('contactsTable').innerHTML = contacts.map(c => `
+            <tr class="border-b border-gray-700 hover:bg-gray-700/50">
+                <td class="p-4 font-medium">${c.first_name} ${c.last_name}</td>
+                <td class="p-3 text-gray-400">${c.company||'-'}</td>
+                <td class="p-3"><span class="px-2 py-1 rounded-full text-xs ${statuses[c.status]||'bg-gray-600'}">${c.status}</span></td>
+                <td class="p-3 text-gray-400">${c.source||'-'}</td>
+                <td class="p-3 text-gray-400">${c.phone||'-'}</td>
+                <td class="p-3"><button onclick="deleteContact(${c.id})" class="text-red-400 hover:text-red-300"><i class="fas fa-trash"></i></button></td>
+            </tr>`).join('');
+    }
+    async function deleteContact(id) {
+        if (!confirm('Delete contact?')) return;
+        try { await apiCall('/api/crm/contacts/'+id,'DELETE'); loadContacts(); } catch(e) { alert(e.message); }
+    }
+    function openContactForm() {
+        const name = prompt('First Name:'); if (!name) return;
+        const last = prompt('Last Name:') || '';
+        const phone = prompt('Phone (e.g. +12345):') || '';
+        const company = prompt('Company:') || '';
+        apiCall('/api/crm/contacts','POST',{first_name:name,last_name:last,phone,company,status:'New',source:'Manual'})
+            .then(()=>loadContacts()).catch(e=>alert(e.message));
+    }
+
+    // ── Pipeline (Kanban) ─────────────────────────────────────────────────────
+    async function loadPipeline() {
+        const deals = await apiCall('/api/crm/deals','GET');
+        const stages = ['Discovery','Proposal','Negotiation','Won','Lost'];
+        const board = document.getElementById('kanbanBoard');
+        board.innerHTML = stages.map(stage => {
+            const cards = deals.filter(d=>d.stage===stage);
+            const val = cards.reduce((s,d)=>s+d.value,0);
+            return `<div class="kanban-col bg-gray-800 rounded-xl p-4 border border-gray-700 flex-shrink-0">
+                <div class="flex justify-between items-center mb-3">
+                    <h3 class="font-bold text-sm">${stage}</h3>
+                    <span class="text-xs text-green-400">$${val.toLocaleString()}</span>
+                </div>
+                <div class="space-y-2">${cards.map(d=>`
+                    <div class="bg-gray-700 p-3 rounded-lg border border-gray-600">
+                        <div class="font-medium text-sm">${d.title}</div>
+                        <div class="text-xs text-gray-400">${d.contact_name} · $${d.value.toLocaleString()}</div>
+                        <div class="text-xs text-gray-500 mt-1">${d.probability}% probability</div>
+                    </div>`).join('')}
+                </div>
+                <button onclick="openDealForm('${stage}')" class="mt-3 w-full text-xs text-gray-400 hover:text-white py-1"><i class="fas fa-plus"></i> Add Deal</button>
+            </div>`;
+        }).join('');
+    }
+    function openDealForm(stage='Discovery') {
+        const title = prompt('Deal title:'); if (!title) return;
+        const val = parseFloat(prompt('Value ($):') || '0');
+        const contact = prompt('Contact name:') || '';
+        apiCall('/api/crm/deals','POST',{title,value:val,stage,contact_name:contact,probability:20})
+            .then(()=>loadPipeline()).catch(e=>alert(e.message));
+    }
+
+    // ── Calls ─────────────────────────────────────────────────────────────────
+    async function loadCalls() {
+        const calls = await apiCall('/api/crm/calls','GET');
+        const outcomes = {Resolved:'text-green-400','Follow-up':'text-yellow-400',Missed:'text-red-400'};
+        document.getElementById('callsTable').innerHTML = calls.map(c => `
+            <tr class="border-b border-gray-700 hover:bg-gray-700/50">
+                <td class="p-4 font-medium">${c.contact_name}</td>
+                <td class="p-3 text-gray-400">${c.duration_minutes}m</td>
+                <td class="p-3 ${outcomes[c.outcome]||''}">${c.outcome}</td>
+                <td class="p-3 text-gray-400">${new Date(c.call_date).toLocaleDateString()}</td>
+            </tr>`).join('');
+    }
+
+    // ── Vapi Agents ───────────────────────────────────────────────────────────
+    async function loadAgents() {
+        const agents = await apiCall('/api/crm/vapi/agents','GET');
+        const statuses = {Live:'bg-green-600',Draft:'bg-gray-600',Paused:'bg-yellow-600'};
+        document.getElementById('agentsList').innerHTML = agents.length ? agents.map(a=>`
+            <div class="bg-gray-800 p-5 rounded-xl border border-gray-700">
+                <div class="flex justify-between items-start mb-3">
+                    <div>
+                        <div class="font-bold">${a.name}</div>
+                        <span class="px-2 py-0.5 rounded text-xs ${statuses[a.status]||'bg-gray-600'}">${a.status}</span>
+                    </div>
+                    <button onclick="deleteAgent(${a.id})" class="text-red-400"><i class="fas fa-trash"></i></button>
+                </div>
+                <div class="grid grid-cols-2 gap-2 text-sm text-gray-400">
+                    <div>📞 Calls: <span class="text-white">${a.total_calls}</span></div>
+                    <div>📈 Conv: <span class="text-green-400">${a.conversion_rate}%</span></div>
+                </div>
+            </div>`).join('')
+        : '<div class="col-span-3 text-center text-gray-500 py-12"><i class="fas fa-microphone-slash text-4xl mb-3 block opacity-30"></i>No Vapi agents yet</div>';
+    }
+    async function deleteAgent(id) {
+        if (!confirm('Delete agent?')) return;
+        try { await apiCall('/api/crm/vapi/agents/'+id,'DELETE'); loadAgents(); } catch(e) { alert(e.message); }
+    }
+
+    // ── Users (Admin) ─────────────────────────────────────────────────────────
+    async function loadUsersPage() {
+        if (currentUserRole !== 'admin') return;
+        const users = await apiCall('/api/crm/admin/users','GET');
+        document.getElementById('usersTableBody').innerHTML = users.map(u=>`
+            <tr class="border-b border-gray-700 hover:bg-gray-700/50">
+                <td class="p-4 font-medium">${u.username}</td>
+                <td class="p-3"><span class="px-2 py-0.5 rounded text-xs ${u.role==='admin'?'bg-purple-600':'bg-gray-600'}">${u.role}</span></td>
+                <td class="p-3 text-gray-400 text-xs">${u.whatsapp_bots.join(', ')||'—'}</td>
+                <td class="p-3"><span class="px-2 py-0.5 rounded text-xs ${u.is_suspended?'bg-red-700':'bg-green-700'}">${u.is_suspended?'Suspended':'Active'}</span></td>
+                <td class="p-3 flex gap-2">
+                    <button onclick="toggleSuspend('${u.username}',${!u.is_suspended})" class="text-xs ${u.is_suspended?'text-green-400':'text-yellow-400'} hover:underline">${u.is_suspended?'Activate':'Suspend'}</button>
+                    <button onclick="deleteUser(${u.id})" class="text-red-400 text-xs hover:underline">Delete</button>
+                </td>
+            </tr>`).join('');
+    }
+    async function toggleSuspend(username, suspended) {
+        try { await apiCall('/api/crm/admin/suspend-user','POST',{username,suspended}); loadUsersPage(); } catch(e) { alert(e.message); }
+    }
+    async function deleteUser(id) {
+        if (!confirm('Permanently delete user and all their data?')) return;
+        try { await apiCall('/api/crm/admin/users/'+id,'DELETE'); loadUsersPage(); } catch(e) { alert(e.message); }
+    }
+    async function assignBot() {
+        const u = document.getElementById('assignUsername').value.trim();
+        const b = document.getElementById('assignBotName').value.trim();
+        const msg = document.getElementById('assignMsg');
+        try {
+            await apiCall('/api/crm/admin/assign-bot','POST',{username:u, bot_name:b});
+            msg.innerHTML='<span class="text-green-400">✅ Assigned!</span>';
+        } catch(e) { msg.innerHTML=`<span class="text-red-400">${e.message}</span>`; }
+    }
+
+    // ── Webhook URLs ──────────────────────────────────────────────────────────
+    async function loadWebhookUrls() {
+        const base = window.location.origin;
+        document.getElementById('whWhatsappUrl').innerText = base+'/webhook';
+        document.getElementById('whVapiUrl').innerText = base+'/api/vapi/webhook';
+        document.getElementById('verifyTokenDisplay').innerText = localStorage.getItem('verify_token')||'(set WHATSAPP_VERIFY_TOKEN in .env)';
+        // Load live events
+        try {
+            const events = await apiCall('/api/crm/webhook/events','GET');
+            document.getElementById('webhookLog').innerHTML = events.length
+                ? events.map(e=>`<div class="p-2 rounded bg-gray-700/50"><span class="text-green-400">[${e.type}]</span> ${e.time}</div>`).join('')
+                : '<div class="text-gray-500">No events yet. Send a WhatsApp message to test.</div>';
+        } catch(e) {}
+    }
+
+    // ── Bot delete ────────────────────────────────────────────────────────────
+
+    async function deleteBot(id) {
+        if (!confirm('Delete this bot?')) return;
+        try { await apiCall('/api/crm/bots/whatsapp/'+id,'DELETE'); loadAllBots(); } catch(e) { alert(e.message); }
+    }
+
+    // ── Settings ──────────────────────────────────────────────────────────────
+    async function loadSettings() {
+        try {
+            const cfg = await apiCall('/api/crm/settings/my-config','GET');
+            document.querySelectorAll('input[name="aiProvider"]').forEach(r=>{r.checked=r.value===cfg.ai_provider;});
+            document.getElementById('geminiApiKey').value = cfg.gemini_api_key||'';
+            document.getElementById('groqApiKey').value = cfg.groq_api_key||'';
+            document.getElementById('anthropicApiKey').value = cfg.anthropic_api_key||'';
+            document.getElementById('openrouterApiKey').value = cfg.openrouter_api_key||'';
+            const savedModel = cfg.openrouter_model || 'nousresearch/hermes-3-llama-3.1-405b:free';
+            const modelSel = document.getElementById('openrouterModel');
+            const knownOpts = Array.from(modelSel.options).map(o=>o.value);
+            if (knownOpts.includes(savedModel)) {
+                modelSel.value = savedModel;
+            } else {
+                modelSel.value = 'custom';
+                document.getElementById('openrouterModelCustom').value = savedModel;
+                document.getElementById('openrouterModelCustom').classList.remove('hidden');
+            }
+        } catch(e) {}
+    }
+    document.getElementById('openrouterModel').addEventListener('change', function() {
+        const custom = document.getElementById('openrouterModelCustom');
+        if (this.value === 'custom') { custom.classList.remove('hidden'); } else { custom.classList.add('hidden'); }
+    });
+    async function testManagerPing() {
+        const el = document.getElementById('managerPingResult');
+        el.classList.remove('hidden');
+        el.textContent = '⏳ Sending...';
+        try {
+            const res = await apiCall('/api/crm/test/manager-ping','POST');
+            if (res.ok) {
+                el.className = 'mt-2 text-xs text-green-400';
+                el.textContent = `✅ Sent to ${res.to} via phone_id ${res.phone_id}. ${res.note||''}`;
+            } else {
+                el.className = 'mt-2 text-xs text-red-400';
+                el.textContent = `❌ Failed (${res.status}): ${JSON.stringify(res.response)}`;
+            }
+        } catch(e) {
+            el.className = 'mt-2 text-xs text-red-400';
+            el.textContent = `❌ Error: ${e.message}`;
+        }
+    }
+    async function saveAiConfig() {
+        const provider = document.querySelector('input[name="aiProvider"]:checked')?.value || 'groq';
+        const gemini = document.getElementById('geminiApiKey').value;
+        const groq = document.getElementById('groqApiKey').value;
+        try {
+            const anthropic = document.getElementById('anthropicApiKey').value;
+            const openrouter = document.getElementById('openrouterApiKey').value;
+            const orModelSel = document.getElementById('openrouterModel').value;
+            const orModel = orModelSel === 'custom' ? document.getElementById('openrouterModelCustom').value : orModelSel;
+            await apiCall('/api/crm/settings/save-config','POST',{
+                ai_provider:provider, gemini_api_key:gemini, groq_api_key:groq, openai_api_key:'', anthropic_api_key:anthropic, openrouter_api_key:openrouter, openrouter_model:orModel
+            });
+            alert('✅ AI config saved!');
+        } catch(e) { alert(e.message); }
+    }
+    // ── Plugin Manager ────────────────────────────────────────────────────────
+    let _availablePlugins = [];
+    let _botPluginConfigs = {};  // plugin_name -> {enabled, config}
+
+    async function loadPluginsTab() {
+        // Populate bot dropdown
+        const sel = document.getElementById('pluginBotSelect');
+        try {
+            const bots = await apiCall('/api/crm/bots/whatsapp', 'GET');
+            sel.innerHTML = '<option value="">— Select a Bot —</option>' +
+                bots.map(b => `<option value="${b.id}">${b.name} (${b.business_name||b.bot_type})</option>`).join('');
+        } catch(e) {}
+        // Load available plugins
+        try { _availablePlugins = await apiCall('/api/crm/plugins', 'GET'); } catch(e) {}
+        document.getElementById('pluginsList').innerHTML = '<p class="text-gray-500 text-sm">Select a bot above to manage its plugins.</p>';
+    }
+
+    async function loadPluginsForBot(botId) {
+        if (!botId) { document.getElementById('pluginsList').innerHTML = ''; return; }
+        _botPluginConfigs = {};
+        try {
+            const rows = await apiCall(`/api/crm/bots/whatsapp/${botId}/plugins`, 'GET');
+            rows.forEach(r => { _botPluginConfigs[r.plugin_name] = r; });
+        } catch(e) {}
+        renderPlugins(botId);
+    }
+
+    function renderPlugins(botId) {
+        const container = document.getElementById('pluginsList');
+        if (!_availablePlugins.length) {
+            container.innerHTML = '<p class="text-gray-400">No plugins available.</p>'; return;
+        }
+        container.innerHTML = _availablePlugins.map(p => {
+            const saved = _botPluginConfigs[p.name] || {enabled: false, config: {}};
+            const checked = saved.enabled ? 'checked' : '';
+            const fields = (p.config_schema || []).map(f => {
+                const val = (saved.config || {})[f.key] !== undefined ? (saved.config || {})[f.key] : (f.default || '');
+                if (f.type === 'textarea' || f.type === 'json') {
+                    return `<div class="mt-2"><label class="text-xs text-gray-400">${f.label}</label>
+                        <textarea id="pcfg_${p.name}_${f.key}" rows="3" class="w-full bg-gray-700 p-2 rounded mt-1 text-sm font-mono">${val}</textarea></div>`;
+                } else if (f.type === 'checkbox') {
+                    const bval = String(val).toLowerCase() === 'true';
+                    return `<div class="mt-2 flex items-center gap-2"><input type="checkbox" id="pcfg_${p.name}_${f.key}" ${bval?'checked':''}>
+                        <label class="text-xs text-gray-400">${f.label}</label></div>`;
+                } else {
+                    return `<div class="mt-2"><label class="text-xs text-gray-400">${f.label}</label>
+                        <input type="${f.type||'text'}" id="pcfg_${p.name}_${f.key}" value="${val}" placeholder="${f.placeholder||''}" class="w-full bg-gray-700 p-2 rounded mt-1 text-sm"></div>`;
+                }
+            }).join('');
+            return `<div class="bg-gray-800 rounded-xl p-5 border border-gray-700">
+                <div class="flex items-start justify-between mb-3">
+                    <div>
+                        <h3 class="font-bold text-white">${p.title} <span class="text-xs text-gray-500 ml-1">v${p.version}</span></h3>
+                        <p class="text-sm text-gray-400 mt-1">${p.description}</p>
+                    </div>
+                    <label class="flex items-center cursor-pointer ml-4">
+                        <div class="relative">
+                            <input type="checkbox" id="ptoggle_${p.name}" class="sr-only" ${checked}>
+                            <div class="w-10 h-6 bg-gray-600 rounded-full peer-checked:bg-green-500 transition" onclick="document.getElementById('ptoggle_${p.name}').click()"></div>
+                            <div class="absolute left-1 top-1 bg-white w-4 h-4 rounded-full transition"></div>
+                        </div>
+                    </label>
+                </div>
+                ${fields}
+                <button onclick="savePlugin('${botId}','${p.name}')" class="mt-3 bg-green-600 px-4 py-1.5 rounded text-sm font-bold hover:bg-green-500">Save</button>
+                <span id="psave_${p.name}" class="ml-2 text-xs text-green-400 hidden">✅ Saved</span>
+            </div>`;
+        }).join('');
+    }
+
+    async function savePlugin(botId, pluginName) {
+        const enabled = document.getElementById(`ptoggle_${pluginName}`)?.checked || false;
+        const plugin = _availablePlugins.find(p => p.name === pluginName);
+        const config = {};
+        (plugin?.config_schema || []).forEach(f => {
+            const el = document.getElementById(`pcfg_${pluginName}_${f.key}`);
+            if (!el) return;
+            config[f.key] = f.type === 'checkbox' ? String(el.checked) : el.value;
+        });
+        try {
+            await apiCall(`/api/crm/bots/whatsapp/${botId}/plugins/${pluginName}`, 'POST', {enabled, config});
+            _botPluginConfigs[pluginName] = {enabled, config};
+            const badge = document.getElementById(`psave_${pluginName}`);
+            if (badge) { badge.classList.remove('hidden'); setTimeout(() => badge.classList.add('hidden'), 2000); }
+        } catch(e) { alert('Save failed: ' + e.message); }
+    }
+
+    async function seedDemoBots() {
+        const btn = event.target;
+        const res = document.getElementById('seedResult');
+        btn.disabled = true; btn.innerText = '⏳ Creating bots...';
+        res.classList.add('hidden');
+        try {
+            const data = await apiCall('/api/crm/admin/seed-demo-bots', 'POST');
+            res.classList.remove('hidden');
+            res.innerHTML = `<span class="text-green-400">${data.message}</span>` +
+                (data.created.length ? `<br>✅ Created: ${data.created.join(', ')}` : '') +
+                (data.skipped.length ? `<br>⚠️ Skipped: ${data.skipped.join(', ')}` : '');
+            if (data.created.length) setTimeout(() => loadBuilderBots(), 1000);
+        } catch(e) {
+            res.classList.remove('hidden');
+            res.innerHTML = `<span class="text-red-400">❌ ${e.message}</span>`;
+        }
+        btn.disabled = false; btn.innerText = '🚀 Seed Demo Bots';
+    }
+
+    async function deleteAccount() {
+        const confirmed = document.getElementById('deleteConfirmText').value;
+        if (confirmed !== 'DELETE') { alert('Type DELETE to confirm'); return; }
+        if (!confirm('This will permanently delete your account and all data. Are you sure?')) return;
+        try {
+            await apiCall('/api/crm/settings/delete-account','DELETE');
+            logout();
+        } catch(e) { alert(e.message); }
+    }
+
+    // ── AI Chat ───────────────────────────────────────────────────────────────
+    async function sendChat() {
+        const input = document.getElementById('chatInput');
+        const msg = input.value.trim(); if (!msg) return;
+        const box = document.getElementById('chatMessages');
+        box.innerHTML += `<div class="flex justify-end"><div class="bg-green-600 rounded-xl px-4 py-2 max-w-xs text-sm">${msg}</div></div>`;
+        input.value=''; box.scrollTop=box.scrollHeight;
+        try {
+            const res = await apiCall('/api/crm/ai/chat','POST',{messages:[{role:'user',content:msg}]});
+            box.innerHTML += `<div class="flex"><div class="bg-gray-700 rounded-xl px-4 py-2 max-w-xs text-sm">${res.reply}</div></div>`;
+        } catch(e) {
+            box.innerHTML += `<div class="flex"><div class="bg-red-900/50 rounded-xl px-4 py-2 max-w-xs text-sm text-red-300">Error: ${e.message}</div></div>`;
+        }
+        box.scrollTop=box.scrollHeight;
+    }
+    document.getElementById('chatInput')?.addEventListener('keydown', e => { if(e.key==='Enter') sendChat(); });
+
+    // ── Dashboard vapi agents list ────────────────────────────────────────────
+    async function loadDashboardOverview() {
+        try {
+            const stats = await apiCall('/api/crm/stats','GET');
+            document.getElementById('statMessagesToday').innerText = stats.messages_today||0;
+            document.getElementById('statCallsToday').innerText = stats.calls_today||0;
+            document.getElementById('statNewLeads').innerText = stats.new_leads||0;
+            document.getElementById('statConversionRate').innerText = (stats.conversion_rate||0)+'%';
+            document.getElementById('statDeliveryToday').innerText = stats.delivery_today||0;
+            document.getElementById('statPickupToday').innerText = stats.pickup_today||0;
+            document.getElementById('statDineInToday').innerText = stats.dine_in_today||0;
+            document.getElementById('statCarDeliveryToday').innerText = stats.car_delivery_today||0;
+            document.getElementById('statReservationsToday').innerText = stats.reservations_today||0;
+            document.getElementById('statRevenueToday').innerText = '$'+(stats.revenue_today||0).toFixed(2);
+        } catch(e) {}
+        try {
+            const data = await apiCall('/api/crm/user/overview','GET');
+            document.getElementById('whatsappBotsList').innerHTML = data.whatsapp_bots.map(b=>`
+                <div class="flex items-center justify-between p-3 bg-gray-700 rounded-lg">
+                    <span class="font-medium">${b.name}</span>
+                    <div class="flex items-center gap-2">
+                        <span class="text-xs text-gray-400">${b.messages_today||0} msgs</span>
+                        <span class="w-2 h-2 rounded-full ${b.status==='live'?'bg-green-500':'bg-gray-500'}"></span>
+                    </div>
+                </div>`).join('')||'<div class="text-gray-500 text-sm">No bots yet. Create one in Bot Management.</div>';
+            document.getElementById('vapiAgentsList').innerHTML = data.vapi_agents.map(a=>`
+                <div class="flex items-center justify-between p-3 bg-gray-700 rounded-lg">
+                    <span class="font-medium">${a.name}</span>
+                    <div class="text-xs text-gray-400">${a.total_calls} calls</div>
+                </div>`).join('')||'<div class="text-gray-500 text-sm">No voice agents yet.</div>';
+        } catch(e) {}
+    }
+
+    if (authToken) {
+        loadUserAndDashboard().catch(err => {
+            if (err.message && err.message.includes('Session expired')) logout();
+            else console.error('Dashboard load error (keeping session):', err.message);
+        });
+    }
+
+    // ── Activity Log ──────────────────────────────────────────────────────────
+    async function loadActivityLog() {
+        const tbody = document.getElementById('activityLogBody');
+        try {
+            const logs = await apiCall('/api/crm/admin/audit-logs', 'GET');
+            const actionColors = {
+                LOGIN: 'text-emerald-400', LOGOUT: 'text-slate-400',
+                UPDATE_BOT: 'text-blue-400', CREATE_BOT: 'text-green-400',
+                DELETE_BOT: 'text-red-400', DUPLICATE_BOT: 'text-purple-400',
+                UI_NAV: 'text-slate-500', UI_BOT_SELECT: 'text-cyan-400',
+            };
+            tbody.innerHTML = logs.length ? logs.map(l => {
+                const color = actionColors[l.action] || 'text-yellow-400';
+                const dt = new Date(l.created_at);
+                const ts = dt.toLocaleDateString() + ' ' + dt.toLocaleTimeString();
+                return `<tr class="border-b border-gray-700 hover:bg-gray-700/30">
+                    <td class="p-3 text-gray-500 text-xs font-mono whitespace-nowrap">${ts}</td>
+                    <td class="p-3 font-medium text-sm">${l.user}</td>
+                    <td class="p-3"><span class="text-xs font-mono font-bold ${color}">${l.action}</span></td>
+                    <td class="p-3 text-gray-400 text-xs">${l.details}</td>
+                </tr>`;
+            }).join('') : '<tr><td colspan="4" class="p-8 text-center text-gray-500">No activity yet.</td></tr>';
+        } catch(e) {
+            tbody.innerHTML = `<tr><td colspan="4" class="p-8 text-center text-red-400">${e.message}</td></tr>`;
+        }
+    }
+
+    async function trackActivity(action, details) {
+        try { await apiCall('/api/crm/activity-log', 'POST', { action, details }); } catch(e) {}
+    }
+</script>
+</body>
+</html>

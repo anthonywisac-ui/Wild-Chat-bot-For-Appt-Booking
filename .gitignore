@@ -1,0 +1,11 @@
+.env
+platform.db
+__pycache__/
+*.pyc
+.claude/
+.gemini/
+*.log
+data/
+vector_store/
+wa-bridge/sessions/
+*.pdf
