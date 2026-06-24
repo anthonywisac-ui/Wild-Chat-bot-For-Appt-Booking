@@ -126,12 +126,26 @@ async def handle_flow(sender, text, bot, db):
     async with _get_session_lock(bot.id, sender):
         text_clean = text.strip()
 
-        if text_clean.startswith("__DOCUMENT__:"):
-            try:
-                _, media_id, filename = text_clean.split(":", 2)
-            except ValueError:
-                media_id, filename = "", "report.pdf"
-            await _handle_lab_report(sender, media_id, filename, bot, db)
-            return
+        try:
+            if text_clean.startswith("__DOCUMENT__:"):
+                try:
+                    _, media_id, filename = text_clean.split(":", 2)
+                except ValueError:
+                    media_id, filename = "", "report.pdf"
+                await _handle_lab_report(sender, media_id, filename, bot, db)
+                return
 
-        await handle_turn(sender, text_clean, bot, db)
+            await handle_turn(sender, text_clean, bot, db)
+        except Exception:
+            # The conversation engine should never leave the patient with total
+            # silence — log the real error for debugging, but still say *something*.
+            logger.exception(f"[appointment] handle_flow crashed for sender={sender}")
+            try:
+                await send_text_message_v2(
+                    sender,
+                    "I'm having a little trouble right now — could you please try again, "
+                    "or contact the clinic directly if this continues?",
+                    bot,
+                )
+            except Exception:
+                logger.exception("[appointment] fallback reply also failed to send")

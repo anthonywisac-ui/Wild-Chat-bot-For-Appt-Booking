@@ -744,6 +744,13 @@ def migrate_db():
                     "wwebjs_session TEXT",
                     "wwebjs_bridge_url TEXT",
                 ]),
+                ("doctors", ["gender TEXT DEFAULT ''"]),
+                ("appointments", [
+                    "department TEXT DEFAULT ''",
+                    "doctor_id INTEGER",
+                    "procedure_id INTEGER",
+                    "consultation_fee FLOAT DEFAULT 0.0",
+                ]),
             ]:
                 existing_cols = {c["name"] for c in inspector.get_columns(table_name)} if table_name in inspector.get_table_names() else set()
                 for col_def in columns:
