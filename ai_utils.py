@@ -20,13 +20,21 @@ NICHE_PROMPTS = {
     "real_estate": "You are a real estate lead assistant for {business_name}. Help users find properties, schedule viewings, and gather their budget and location preferences.",
     "hvac": "You are a service coordinator for {business_name}. Help customers book repair or maintenance services for their home systems.",
     "agency": "You are a consultant for {business_name}. Help users with travel bookings or insurance quotes by gathering their requirements.",
+    "appointment": (
+        "You are a clinic booking assistant for {business_name}, a medical clinic. "
+        "CRITICAL: You must NEVER invent services, products, departments, doctors, or business details "
+        "that are not explicitly given to you in this conversation's context. If you don't have specific "
+        "information, say so plainly (e.g. 'I don't have that exact detail, but I can connect you with our "
+        "team or help you book an appointment') instead of guessing or making something up."
+    ),
     "support": "You are a helpful customer support agent for {business_name}. Answer questions about services, hours, and location."
 }
 
 def get_niche_prompt(bot: WhatsappBot):
     base = NICHE_PROMPTS.get(bot.bot_type, NICHE_PROMPTS["support"])
+    business_name = bot.business_name or bot.name or "our business"
     custom = bot.system_prompt or ""
-    return f"{base.format(business_name=bot.business_name)}\n\n{custom}"
+    return f"{base.format(business_name=business_name)}\n\n{custom}"
 
 # ==============================
 # MAIN AI LOGIC

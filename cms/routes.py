@@ -269,8 +269,13 @@ def _resync_clinic_profile(bot_id: int, db: Session) -> None:
 
     try:
         rebuild_profile(bot_id, "\n\n".join(lines))
-    except Exception:
-        pass  # never block the API response on RAG indexing failures
+    except Exception as exc:
+        # Never block the API response on RAG indexing failures, but log it loudly —
+        # silent failures here previously caused the bot to fall back to a non-grounded
+        # AI answer (hallucination risk). flow.py's _clinic_ai_fallback is the real
+        # safety net now, but this should still be visible in logs.
+        import logging
+        logging.getLogger(__name__).error(f"[knowledge] rebuild_profile failed for bot {bot_id}: {exc}")
 
 
 @router.post("/bots/{bot_id}/doctors", summary="Add a doctor to a bot's Dental/Aesthetic roster")

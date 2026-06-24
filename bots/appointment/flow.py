@@ -28,7 +28,7 @@ from db import (
     cancel_appointment, reschedule_appointment,
     get_doctors_by_bot, get_doctors_by_department, get_doctor_by_id,
     get_enabled_departments_for_bot, create_lab_report,
-    get_procedures_by_department, get_procedure_by_id,
+    get_procedures_by_department, get_procedure_by_id, get_procedures_by_bot,
 )
 from whatsapp_handlers import (
     send_text_message_v2, send_document_v2,
@@ -37,7 +37,6 @@ from whatsapp_handlers import (
 from ai.intent import detect_intent
 from ai.rag import answer_with_rag
 from ai.triage import recommend_doctor, analyze_lab_report
-from ai_utils import get_ai_response
 from utils_pdf import generate_appointment_pdf
 from utils_datetime import (
     normalize_and_validate, parse_date, parse_time,
@@ -239,6 +238,60 @@ async def _propose_doctor(sender, bot, db, doctor_id, reasoning_intro):
         bot,
     )
     return {"stage": "confirm_triage_doctor", "doctor_id": doctor.id, "department": doctor.department}
+
+
+def _build_clinic_facts(bot, db) -> str:
+    """Deterministic, DB-sourced facts (not dependent on the RAG embedding model) used
+    to ground every AI fallback reply so it can never invent unrelated services/products."""
+    lines = [f"Departments offered: {', '.join(d['label'] for d in DEPARTMENTS.values())}."]
+
+    doctors = get_doctors_by_bot(db, bot.id)
+    if doctors:
+        for d in doctors:
+            bio = f" {d.bio}" if d.bio else ""
+            lines.append(f"Dr. {d.name} — {d.department.title()} department — consultation fee ${d.consultation_fee:.0f}.{bio}")
+    else:
+        lines.append("No doctors have been added to the roster yet.")
+
+    procedures = get_procedures_by_bot(db, bot.id)
+    if procedures:
+        for p in procedures:
+            lines.append(
+                f"Procedure: {p.name} ({p.department.title()}) — ${p.fee_per_session:.0f}/session "
+                f"× {p.sessions_required} session(s)."
+            )
+
+    return "\n".join(lines)
+
+
+async def _clinic_ai_fallback(text: str, bot, db) -> str:
+    """Grounded AI fallback for FAQ/general questions — always anchored to real
+    clinic facts so the model can't hallucinate unrelated business content."""
+    facts = _build_clinic_facts(bot, db)
+    system_prompt = (
+        f"You are a clinic assistant for {bot.business_name or bot.name}. "
+        "Answer the patient's message using ONLY the real facts listed below, plus general "
+        "friendly conversation. If what they're asking isn't covered by these facts, say so "
+        "plainly and offer to help them book an appointment or connect with the clinic directly. "
+        "NEVER invent services, products, departments, or business types that aren't listed here.\n\n"
+        f"Known facts:\n{facts}"
+    )
+
+    try:
+        from ai_utils import resolve_provider_and_key, call_ai_chat
+
+        provider, api_key = resolve_provider_and_key(bot, db)
+        if not api_key:
+            return "I'm not able to look that up right now — type *menu* to see what I can help with."
+
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": text},
+        ]
+        return await call_ai_chat(messages, provider, api_key, bot, db, text)
+    except Exception as exc:
+        logger.error(f"[appointment] clinic AI fallback failed: {exc}")
+        return "I'm having trouble answering that right now — type *menu* to see what I can help with."
 
 
 async def _send_appointment_pdf(sender, bot, db, appointment, intro_text):
@@ -554,7 +607,7 @@ async def _handle_flow_inner(sender, text, bot, db):
         # Mid-flow questions ("what's your address?", "how much is it?") get answered
         # without losing booking progress — instead of being blindly treated as a date/time.
         if stage in ("select_date", "select_time") and looks_like_question(text_clean):
-            answer = await answer_with_rag(text_clean, bot, db) or await get_ai_response(sender, text_clean, bot, db)
+            answer = await answer_with_rag(text_clean, bot, db) or await _clinic_ai_fallback(text_clean, bot, db)
             await send_text_message_v2(sender, answer, bot)
             follow_up = "Now, what *Date* would you like?" if stage == "select_date" else "Now, what *Time* works best for you?"
             await send_text_message_v2(sender, follow_up, bot)
@@ -773,12 +826,12 @@ async def _handle_flow_inner(sender, text, bot, db):
     elif intent == "faq":
         answer = await answer_with_rag(text_clean, bot, db)
         if not answer:
-            answer = await get_ai_response(sender, text_clean, bot, db)
+            answer = await _clinic_ai_fallback(text_clean, bot, db)
         await send_text_message_v2(sender, answer, bot)
         session = {"stage": "idle"}
 
     else:  # "other" — general conversational fallback
-        answer = await get_ai_response(sender, text_clean, bot, db)
+        answer = await _clinic_ai_fallback(text_clean, bot, db)
         await send_text_message_v2(sender, answer, bot)
         session = {"stage": "idle"}
 
