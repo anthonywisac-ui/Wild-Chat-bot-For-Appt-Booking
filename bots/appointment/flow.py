@@ -20,6 +20,7 @@
 
 import asyncio
 import logging
+import re
 
 from db import (
     get_session_data, save_session_data,
@@ -57,6 +58,22 @@ PROC_SKIP_ID = "PROC_SKIP"
 # silently undo each other's progress.
 _session_locks: dict[tuple, asyncio.Lock] = {}
 _MAX_TRACKED_LOCKS = 50_000
+
+
+# Casual greetings/small-talk mid-booking ("Hi", "hello there", "how are you")
+# — matched only when the WHOLE message is just chit-chat, so it never
+# swallows a real date/time/question.
+_CASUAL_GREETING_RE = re.compile(
+    r"^(hi+|hello+|hey+|yo|good\s*(morning|afternoon|evening)|how\s*are\s*you|"
+    r"how('?s| is) it going|what'?s up)[\s!.?]*$"
+)
+
+
+def _escape_hint(fail_count: int) -> str:
+    """After repeated failures in the same step, remind the user they're never stuck."""
+    if fail_count >= 2:
+        return "\n\n💡 You can type *menu* anytime to start over, or just ask me a question directly."
+    return ""
 
 
 def _get_session_lock(bot_id, sender) -> asyncio.Lock:
@@ -524,6 +541,15 @@ async def _handle_flow_inner(sender, text, bot, db):
             _save(sender, bot.id, session, db)
             return
 
+        # Casual greetings mid-booking ("Hi", "Hello", "how are you") get a warm,
+        # human reply instead of a confusing parse error — then we just repeat
+        # whatever we were waiting for.
+        if stage in ("select_date", "select_time") and _CASUAL_GREETING_RE.match(text_lower):
+            nudge = "What *Date* would you like?" if stage == "select_date" else "And what *Time* works best for you?"
+            await send_text_message_v2(sender, f"Hello! 😊 {nudge}", bot)
+            _save(sender, bot.id, session, db)
+            return
+
         # Mid-flow questions ("what's your address?", "how much is it?") get answered
         # without losing booking progress — instead of being blindly treated as a date/time.
         if stage in ("select_date", "select_time") and looks_like_question(text_clean):
@@ -531,34 +557,41 @@ async def _handle_flow_inner(sender, text, bot, db):
             await send_text_message_v2(sender, answer, bot)
             follow_up = "Now, what *Date* would you like?" if stage == "select_date" else "Now, what *Time* works best for you?"
             await send_text_message_v2(sender, follow_up, bot)
+            session["_fail_count"] = 0
             _save(sender, bot.id, session, db)
             return
 
         if stage == "select_date":
             parsed_date = parse_date(text_clean)
             if not parsed_date:
+                session["_fail_count"] = session.get("_fail_count", 0) + 1
+                hint = _escape_hint(session["_fail_count"])
                 await send_text_message_v2(
                     sender,
-                    "I couldn't understand that date. Please try again (e.g. 'Tomorrow', 'Monday', 'Oct 25').",
+                    f"I couldn't understand that date. Please try again (e.g. 'Tomorrow', 'Monday', 'Oct 25').{hint}",
                     bot,
                 )
                 _save(sender, bot.id, session, db)
                 return
 
             session["date"] = parsed_date.strftime("%Y-%m-%d")
+            session["_fail_count"] = 0
             await send_text_message_v2(sender, "What *Time* works best for you? (e.g. 10 AM, 2:30 PM)", bot)
             session["stage"] = "select_time"
 
         elif stage == "select_time":
             parsed_time = parse_time(text_clean)
             if not parsed_time:
+                session["_fail_count"] = session.get("_fail_count", 0) + 1
+                hint = _escape_hint(session["_fail_count"])
                 await send_text_message_v2(
                     sender,
-                    "I couldn't understand that time. Please try again (e.g. '10 AM', '2:30 PM', 'afternoon').",
+                    f"I couldn't understand that time. Please try again (e.g. '10 AM', '2:30 PM', 'afternoon').{hint}",
                     bot,
                 )
                 _save(sender, bot.id, session, db)
                 return
+            session["_fail_count"] = 0
 
             doctor = get_doctor_by_id(db, bot.id, session.get("doctor_id")) if session.get("doctor_id") else None
             appt_date_obj = _datetime.strptime(session["date"], "%Y-%m-%d").date()
