@@ -85,6 +85,28 @@ def has_knowledge_base(bot_id: int) -> bool:
     return os.path.exists(_index_path(bot_id)) and os.path.exists(_chunks_path(bot_id))
 
 
+def delete_namespace(bot_id) -> None:
+    """Removes the FAISS index + chunk store for a given namespace key."""
+    for path in (_index_path(bot_id), _chunks_path(bot_id)):
+        if os.path.exists(path):
+            os.remove(path)
+
+
+def profile_namespace(bot_id) -> str:
+    """Separate namespace for auto-generated doctor/procedure data, kept apart from
+    manually uploaded FAQ documents so rebuilding one never wipes the other."""
+    return f"{bot_id}_profile"
+
+
+def rebuild_profile(bot_id, text: str) -> int:
+    """Fully replaces the clinic profile namespace (doctors/procedures) with fresh text."""
+    namespace = profile_namespace(bot_id)
+    delete_namespace(namespace)
+    if not text.strip():
+        return 0
+    return ingest_text(namespace, text, title="clinic_profile")
+
+
 def ingest_text(bot_id: int, text: str, title: str = "document") -> int:
     """Chunk + embed + append text to this bot's FAISS index. Returns chunk count added."""
     import faiss
@@ -155,10 +177,11 @@ def query(bot_id: int, question: str, k: int = 3) -> list[str]:
 
 async def answer_with_rag(question: str, bot, db) -> str | None:
     """
-    Retrieves relevant chunks and asks the bot's configured LLM to answer using
-    only that context. Returns None if there's no knowledge base or no answer.
+    Retrieves relevant chunks (from both the manual FAQ knowledge base and the
+    auto-synced doctor/procedure profile) and asks the bot's configured LLM to
+    answer using only that context. Returns None if there's no match.
     """
-    chunks = query(bot.id, question, k=3)
+    chunks = query(bot.id, question, k=3) + query(profile_namespace(bot.id), question, k=4)
     if not chunks:
         return None
 

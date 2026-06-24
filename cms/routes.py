@@ -6,10 +6,11 @@ from db import (
     get_db, User, get_user_by_username, create_user, WhatsappBot,
     add_knowledge_document, get_knowledge_documents,
     create_doctor, get_doctors_by_bot, get_doctor_by_id, update_doctor, delete_doctor,
+    create_procedure, get_procedures_by_bot, get_procedure_by_id, update_procedure, delete_procedure,
 )
 from auth import verify_password, get_password_hash, create_access_token, decode_token
 from pydantic import BaseModel
-from typing import Optional, Dict
+from typing import Optional, Dict, List
 import subprocess
 import json
 import os
@@ -230,6 +231,48 @@ def _doctor_to_dict(d) -> dict:
     }
 
 
+def _procedure_to_dict(p) -> dict:
+    return {
+        "id": p.id, "bot_id": p.bot_id, "department": p.department, "name": p.name,
+        "sessions_required": p.sessions_required, "fee_per_session": p.fee_per_session,
+        "description": p.description, "upsell_with": json.loads(p.upsell_with_json or "[]"),
+        "active": p.active, "created_at": p.created_at,
+    }
+
+
+def _resync_clinic_profile(bot_id: int, db: Session) -> None:
+    """Rebuilds the auto-generated RAG profile (doctors + procedures) for this bot.
+    Called after any doctor/procedure create/update/delete so FAQ answers ('what's
+    the fee for X?', 'who treats Y?') stay accurate without polluting the
+    manually-uploaded FAQ knowledge base."""
+    from ai.rag import rebuild_profile
+
+    doctors = get_doctors_by_bot(db, bot_id, active_only=True)
+    procedures = get_procedures_by_bot(db, bot_id, active_only=True)
+
+    lines = []
+    for d in doctors:
+        shifts = json.loads(d.shift_json or "{}")
+        shift_text = ", ".join(f"{day}: {hrs}" for day, hrs in shifts.items() if hrs) or "schedule not set"
+        lines.append(
+            f"Dr. {d.name} ({d.department.title()} department). {d.bio or ''} "
+            f"Consultation fee: ${d.consultation_fee:.0f}. Available: {shift_text}."
+        )
+    for p in procedures:
+        upsells = json.loads(p.upsell_with_json or "[]")
+        upsell_text = f" Often combined with: {', '.join(upsells)}." if upsells else ""
+        lines.append(
+            f"Procedure: {p.name} ({p.department.title()} department). {p.description or ''} "
+            f"Requires {p.sessions_required} session(s) at ${p.fee_per_session:.0f} per session "
+            f"(total ${p.fee_per_session * p.sessions_required:.0f}).{upsell_text}"
+        )
+
+    try:
+        rebuild_profile(bot_id, "\n\n".join(lines))
+    except Exception:
+        pass  # never block the API response on RAG indexing failures
+
+
 @router.post("/bots/{bot_id}/doctors", summary="Add a doctor to a bot's Dental/Aesthetic roster")
 def add_doctor(
     bot_id: int,
@@ -247,6 +290,7 @@ def add_doctor(
         db, bot_id=bot_id, department=data.department, name=data.name, bio=data.bio,
         consultation_fee=data.consultation_fee, other_fees=data.other_fees, shifts=data.shifts,
     )
+    _resync_clinic_profile(bot_id, db)
     return _doctor_to_dict(doc)
 
 
@@ -274,6 +318,7 @@ def edit_doctor(
 
     payload = data.dict(exclude_unset=True)
     updated = update_doctor(db, doctor, payload)
+    _resync_clinic_profile(bot_id, db)
     return _doctor_to_dict(updated)
 
 
@@ -288,7 +333,96 @@ def remove_doctor(
     if not doctor:
         raise HTTPException(404, "Doctor not found")
     delete_doctor(db, doctor)
+    _resync_clinic_profile(bot_id, db)
     return {"message": f"Doctor #{doctor_id} removed"}
+
+
+# ============================================================
+# Procedures (Dental / Aesthetic treatments, sessions & fees)
+# ============================================================
+
+class ProcedureCreate(BaseModel):
+    department: str
+    name: str
+    sessions_required: int = 1
+    fee_per_session: float = 0.0
+    description: str = ""
+    upsell_with: List[str] = []
+
+
+class ProcedureUpdate(BaseModel):
+    department: Optional[str] = None
+    name: Optional[str] = None
+    sessions_required: Optional[int] = None
+    fee_per_session: Optional[float] = None
+    description: Optional[str] = None
+    upsell_with: Optional[List[str]] = None
+    active: Optional[bool] = None
+
+
+@router.post("/bots/{bot_id}/procedures", summary="Add a procedure/treatment (with sessions, fee, upsells)")
+def add_procedure(
+    bot_id: int,
+    data: ProcedureCreate,
+    db: Session = Depends(get_db),
+    current_admin: User = Depends(get_current_admin),
+):
+    bot = db.query(WhatsappBot).filter(WhatsappBot.id == bot_id).first()
+    if not bot:
+        raise HTTPException(404, "Bot not found")
+    if data.department not in ("dental", "aesthetic"):
+        raise HTTPException(400, "department must be 'dental' or 'aesthetic'")
+
+    proc = create_procedure(
+        db, bot_id=bot_id, department=data.department, name=data.name,
+        sessions_required=data.sessions_required, fee_per_session=data.fee_per_session,
+        description=data.description, upsell_with=data.upsell_with,
+    )
+    _resync_clinic_profile(bot_id, db)
+    return _procedure_to_dict(proc)
+
+
+@router.get("/bots/{bot_id}/procedures", summary="List all procedures for a bot")
+def list_procedures(
+    bot_id: int,
+    db: Session = Depends(get_db),
+    current_admin: User = Depends(get_current_admin),
+):
+    procedures = get_procedures_by_bot(db, bot_id, active_only=False)
+    return [_procedure_to_dict(p) for p in procedures]
+
+
+@router.put("/bots/{bot_id}/procedures/{procedure_id}", summary="Update a procedure")
+def edit_procedure(
+    bot_id: int,
+    procedure_id: int,
+    data: ProcedureUpdate,
+    db: Session = Depends(get_db),
+    current_admin: User = Depends(get_current_admin),
+):
+    procedure = get_procedure_by_id(db, bot_id, procedure_id)
+    if not procedure:
+        raise HTTPException(404, "Procedure not found")
+
+    payload = data.dict(exclude_unset=True)
+    updated = update_procedure(db, procedure, payload)
+    _resync_clinic_profile(bot_id, db)
+    return _procedure_to_dict(updated)
+
+
+@router.delete("/bots/{bot_id}/procedures/{procedure_id}", summary="Remove a procedure")
+def remove_procedure(
+    bot_id: int,
+    procedure_id: int,
+    db: Session = Depends(get_db),
+    current_admin: User = Depends(get_current_admin),
+):
+    procedure = get_procedure_by_id(db, bot_id, procedure_id)
+    if not procedure:
+        raise HTTPException(404, "Procedure not found")
+    delete_procedure(db, procedure)
+    _resync_clinic_profile(bot_id, db)
+    return {"message": f"Procedure #{procedure_id} removed"}
 
 
 # ============================================================

@@ -26,6 +26,7 @@ from db import (
     cancel_appointment, reschedule_appointment,
     get_doctors_by_bot, get_doctors_by_department, get_doctor_by_id,
     get_enabled_departments_for_bot, create_lab_report,
+    get_procedures_by_department, get_procedure_by_id,
 )
 from whatsapp_handlers import (
     send_text_message_v2, send_document_v2,
@@ -36,12 +37,14 @@ from ai.rag import answer_with_rag
 from ai.triage import recommend_doctor, analyze_lab_report
 from ai_utils import get_ai_response
 from utils_pdf import generate_appointment_pdf
+from utils_datetime import normalize_and_validate
 from bots.appointment.departments import DEPARTMENTS, get_department
 
 logger = logging.getLogger(__name__)
 
 BOOKING_STAGES = {"select_date", "select_time", "confirm"}
 SYMPTOM_TRIAGE_ID = "SYMPTOM_TRIAGE"
+PROC_SKIP_ID = "PROC_SKIP"
 
 
 # ──────────────────────────────────────────────────────────────────────────
@@ -132,6 +135,27 @@ async def _send_doctor_list(sender, bot, db, department: str):
     return True
 
 
+async def _send_procedure_list(sender, bot, db, department: str):
+    """Shows the department's bookable procedures (with sessions + fee). Returns True if any exist."""
+    procedures = get_procedures_by_department(db, bot.id, department)
+    if not procedures:
+        return False
+
+    rows = [{
+        "id": f"PROC_{p.id}",
+        "title": p.name[:24],
+        "description": f"${p.fee_per_session:.0f}/session × {p.sessions_required} • {(p.description or '')[:40]}",
+    } for p in procedures[:9]]
+    rows.append({"id": PROC_SKIP_ID, "title": "Just a general consultation", "description": "Skip — book consultation only"})
+
+    label = get_department(department).get("label", department.title())
+    await send_interactive_list(
+        sender, f"{label} Procedures", "Which treatment would you like to book?",
+        "View Procedures", [{"title": "Procedures", "rows": rows}], bot,
+    )
+    return True
+
+
 # ──────────────────────────────────────────────────────────────────────────
 # Booking entry points
 # ──────────────────────────────────────────────────────────────────────────
@@ -192,9 +216,6 @@ async def _send_appointment_pdf(sender, bot, db, appointment, intro_text):
 
 
 async def _ask_date(sender, bot, session):
-    doctor_name = ""
-    if session.get("doctor_id"):
-        pass  # name not strictly needed here; date prompt stays generic
     await send_text_message_v2(sender, "Please enter your preferred *Date* (e.g. Tomorrow, Monday, or Oct 25th).", bot)
     session["stage"] = "select_date"
     return session
@@ -339,16 +360,95 @@ async def handle_flow(sender, text, bot, db):
                 await send_text_message_v2(sender, "Please select a doctor from the list, or type *menu*.", bot)
                 _save(sender, bot.id, session, db)
                 return
-            session = {"stage": "select_date", "doctor_id": doctor.id, "department": doctor.department,
-                       "service": f"Consultation with Dr. {doctor.name}"}
+            session = {"doctor_id": doctor.id, "department": doctor.department,
+                       "service": f"Consultation with Dr. {doctor.name}",
+                       "total_fee": doctor.consultation_fee}
             await send_text_message_v2(
-                sender,
-                f"Great choice! Dr. {doctor.name} — ${doctor.consultation_fee:.0f} consultation fee.\n\n"
-                "Please enter your preferred *Date* (e.g. Tomorrow, Monday, or Oct 25th).",
-                bot,
+                sender, f"Great choice! Dr. {doctor.name} — ${doctor.consultation_fee:.0f} consultation fee.", bot,
             )
+            has_procedures = await _send_procedure_list(sender, bot, db, doctor.department)
+            if has_procedures:
+                session["stage"] = "procedure_select"
+            else:
+                session = await _ask_date(sender, bot, session)
         else:
             await send_text_message_v2(sender, "Please select a doctor from the list above, or type *menu*.", bot)
+        _save(sender, bot.id, session, db)
+        return
+
+    # ══════════════════════════════════════════════════════════════════════
+    # PROCEDURE SELECTION (sessions, fee, upsell)
+    # ══════════════════════════════════════════════════════════════════════
+    if stage == "procedure_select":
+        if text_clean == PROC_SKIP_ID:
+            session = await _ask_date(sender, bot, session)
+        elif text_clean.startswith("PROC_"):
+            try:
+                procedure_id = int(text_clean.replace("PROC_", ""))
+            except ValueError:
+                procedure_id = None
+            procedure = get_procedure_by_id(db, bot.id, procedure_id) if procedure_id else None
+            if not procedure:
+                await send_text_message_v2(sender, "Please select a procedure from the list, or type *menu*.", bot)
+                _save(sender, bot.id, session, db)
+                return
+
+            total = procedure.fee_per_session * procedure.sessions_required
+            session["procedure_id"] = procedure.id
+            session["service"] = f"{procedure.name} with Dr. " + (
+                get_doctor_by_id(db, bot.id, session.get("doctor_id")).name if session.get("doctor_id") else ""
+            )
+            session["total_fee"] = total
+
+            sessions_note = f" ({procedure.sessions_required} sessions)" if procedure.sessions_required > 1 else ""
+            await send_text_message_v2(
+                sender, f"✅ {procedure.name} selected{sessions_note} — total ${total:.0f}.", bot,
+            )
+
+            import json as _json
+            upsell_names = _json.loads(procedure.upsell_with_json or "[]")
+            upsell_procs = []
+            if upsell_names:
+                dept_procs = get_procedures_by_department(db, bot.id, procedure.department)
+                upsell_procs = [p for p in dept_procs if p.name in upsell_names][:2]
+
+            if upsell_procs:
+                buttons = [{"id": f"UPSELL_{p.id}", "title": f"+ {p.name[:18]}"} for p in upsell_procs]
+                buttons.append({"id": "NO_UPSELL", "title": "No thanks"})
+                lines = "\n".join(f"• {p.name} — ${p.fee_per_session * p.sessions_required:.0f}" for p in upsell_procs)
+                await send_interactive_buttons(
+                    sender,
+                    f"💡 Many patients combine *{procedure.name}* with:\n{lines}\n\nWould you like to add one?",
+                    buttons, bot,
+                )
+                session["stage"] = "upsell_offer"
+                session["_upsell_options"] = {f"UPSELL_{p.id}": p.id for p in upsell_procs}
+            else:
+                session = await _ask_date(sender, bot, session)
+        else:
+            await send_text_message_v2(sender, "Please select an option from the list above, or type *menu*.", bot)
+        _save(sender, bot.id, session, db)
+        return
+
+    # ══════════════════════════════════════════════════════════════════════
+    # UPSELL OFFER
+    # ══════════════════════════════════════════════════════════════════════
+    if stage == "upsell_offer":
+        options = session.get("_upsell_options", {})
+        if text_clean in options:
+            addon = get_procedure_by_id(db, bot.id, options[text_clean])
+            if addon:
+                addon_fee = addon.fee_per_session * addon.sessions_required
+                session["total_fee"] = session.get("total_fee", 0.0) + addon_fee
+                session["service"] = f"{session.get('service', 'Appointment')} + {addon.name}"
+                await send_text_message_v2(sender, f"✅ Added {addon.name} (+${addon_fee:.0f}).", bot)
+            session.pop("_upsell_options", None)
+            session = await _ask_date(sender, bot, session)
+        elif text_clean == "NO_UPSELL" or text_lower in {"no", "no thanks", "n"}:
+            session.pop("_upsell_options", None)
+            session = await _ask_date(sender, bot, session)
+        else:
+            await send_text_message_v2(sender, "Please tap one of the options above, or type *menu*.", bot)
         _save(sender, bot.id, session, db)
         return
 
@@ -370,11 +470,13 @@ async def handle_flow(sender, text, bot, db):
 
     if stage == "confirm_triage_doctor":
         if text_clean == "TRIAGE_ACCEPT" or text_lower in {"yes", "y", "confirm", "book"}:
-            session = await _ask_date(sender, bot, session)
-            session["service"] = f"Consultation with recommended doctor"
             doctor = get_doctor_by_id(db, bot.id, session.get("doctor_id"))
-            if doctor:
-                session["service"] = f"Consultation with Dr. {doctor.name}"
+            session["service"] = f"Consultation with Dr. {doctor.name}" if doctor else "Consultation"
+            session["total_fee"] = doctor.consultation_fee if doctor else 0.0
+            has_procedures = await _send_procedure_list(sender, bot, db, session.get("department", ""))
+            session["stage"] = "procedure_select" if has_procedures else None
+            if not has_procedures:
+                session = await _ask_date(sender, bot, session)
         elif text_clean == "TRIAGE_DECLINE" or text_lower in {"no", "n"}:
             session = await _start_booking(sender, bot, db)
         else:
@@ -398,14 +500,29 @@ async def handle_flow(sender, text, bot, db):
             session["stage"] = "select_time"
 
         elif stage == "select_time":
-            session["time"] = text_clean
             doctor = get_doctor_by_id(db, bot.id, session.get("doctor_id")) if session.get("doctor_id") else None
-            fee_line = f"\n💰 Fee: ${doctor.consultation_fee:.0f}" if doctor else ""
+            validation = normalize_and_validate(db, bot.id, doctor, session.get("date", ""), text_clean)
+
+            if not validation["ok"]:
+                await send_text_message_v2(
+                    sender,
+                    f"⚠️ {validation['error']}\n\nLet's try again — what *Date* would you like?",
+                    bot,
+                )
+                session["stage"] = "select_date"
+                session.pop("date", None)
+                _save(sender, bot.id, session, db)
+                return
+
+            session["date"] = validation["date"]
+            session["time"] = validation["time"]
+            fee = session.get("total_fee", doctor.consultation_fee if doctor else 0.0)
+            fee_line = f"\n💰 Fee: ${fee:.0f}" if fee else ""
             msg = (
                 f"📝 *Confirm Booking:*\n"
                 f"🔹 {session.get('service', 'Appointment')}\n"
-                f"📅 Date: {session['date']}\n"
-                f"⏰ Time: {session['time']}{fee_line}\n\n"
+                f"📅 Date: {validation['display_date']}\n"
+                f"⏰ Time: {validation['display_time']}{fee_line}\n\n"
                 "Type *Confirm* to book, or *Cancel* to abort."
             )
             await send_text_message_v2(sender, msg, bot)
@@ -414,12 +531,22 @@ async def handle_flow(sender, text, bot, db):
         elif stage == "confirm":
             if "confirm" in text_lower:
                 doctor = get_doctor_by_id(db, bot.id, session.get("doctor_id")) if session.get("doctor_id") else None
+                # Re-check the slot wasn't taken by someone else between confirm screen and now.
+                if doctor:
+                    validation = normalize_and_validate(db, bot.id, doctor, session.get("date", ""), session.get("time", ""))
+                    if not validation["ok"]:
+                        await send_text_message_v2(sender, f"⚠️ {validation['error']} Type *menu* to start again.", bot)
+                        session = {"stage": "idle"}
+                        _save(sender, bot.id, session, db)
+                        return
+
                 appt = create_appointment(
                     db, owner_id=bot.owner_id, bot_id=bot.id, customer_phone=sender,
                     service=session.get("service", "Appointment"),
                     appointment_date=session.get("date", ""), appointment_time=session.get("time", ""),
                     department=session.get("department", ""), doctor_id=session.get("doctor_id"),
-                    consultation_fee=doctor.consultation_fee if doctor else 0.0,
+                    consultation_fee=session.get("total_fee", doctor.consultation_fee if doctor else 0.0),
+                    procedure_id=session.get("procedure_id"),
                 )
                 await _send_appointment_pdf(sender, bot, db, appt, "✅ Appointment booked! Here's your confirmation:")
                 session = {"stage": "idle"}

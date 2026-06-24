@@ -299,9 +299,10 @@ class Appointment(Base):
     service = Column(String, default="")
     department = Column(String, default="")   # e.g. "dental" | "aesthetic"
     doctor_id = Column(Integer, ForeignKey("doctors.id", ondelete="SET NULL"), nullable=True, index=True)
+    procedure_id = Column(Integer, ForeignKey("procedures.id", ondelete="SET NULL"), nullable=True, index=True)
     consultation_fee = Column(Float, default=0.0)
-    appointment_date = Column(String, default="")   # free-form or normalized YYYY-MM-DD
-    appointment_time = Column(String, default="")    # free-form or normalized HH:MM
+    appointment_date = Column(String, default="")   # normalized YYYY-MM-DD (falls back to free text if unparsable)
+    appointment_time = Column(String, default="")    # normalized HH:MM 24h (falls back to free text if unparsable)
     status = Column(String, default="Confirmed", index=True)  # Confirmed | Cancelled | Rescheduled | Completed
     notes = Column(Text, default="")
     reminder_sent = Column(Boolean, default=False)
@@ -319,6 +320,20 @@ class Doctor(Base):
     consultation_fee = Column(Float, default=0.0)
     other_fees_json = Column(Text, default="{}")  # e.g. {"X-Ray": 20, "Cleaning": 50}
     shift_json = Column(Text, default="{}")        # e.g. {"mon": "10:00-18:00", "tue": "off", ...}
+    active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+class Procedure(Base):
+    """A bookable procedure/treatment within a department (e.g. 'Teeth Whitening', 'Botox')."""
+    __tablename__ = "procedures"
+    id = Column(Integer, primary_key=True, index=True)
+    bot_id = Column(Integer, ForeignKey("whatsapp_bots.id", ondelete="CASCADE"), nullable=False, index=True)
+    department = Column(String, nullable=False, index=True)  # "dental" | "aesthetic"
+    name = Column(String, nullable=False)
+    sessions_required = Column(Integer, default=1)
+    fee_per_session = Column(Float, default=0.0)
+    description = Column(Text, default="")
+    upsell_with_json = Column(Text, default="[]")  # list of other procedure names in same department
     active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
@@ -481,11 +496,12 @@ def get_session_data(db: Session, bot_id: int, phone: str):
 def create_appointment(db: Session, owner_id: int, bot_id: int, customer_phone: str,
                         service: str, appointment_date: str, appointment_time: str,
                         customer_name: str = "", notes: str = "", department: str = "",
-                        doctor_id: int = None, consultation_fee: float = 0.0) -> "Appointment":
+                        doctor_id: int = None, consultation_fee: float = 0.0,
+                        procedure_id: int = None) -> "Appointment":
     appt = Appointment(
         owner_id=owner_id, bot_id=bot_id, customer_phone=customer_phone,
         customer_name=customer_name, service=service, department=department,
-        doctor_id=doctor_id, consultation_fee=consultation_fee,
+        doctor_id=doctor_id, consultation_fee=consultation_fee, procedure_id=procedure_id,
         appointment_date=appointment_date, appointment_time=appointment_time,
         status="Confirmed", notes=notes,
     )
@@ -547,6 +563,65 @@ def get_enabled_departments_for_bot(db: Session, bot_id: int) -> list:
     """A department is 'enabled' for a bot if it has at least one active doctor configured."""
     rows = db.query(Doctor.department).filter(Doctor.bot_id == bot_id, Doctor.active == True).distinct().all()
     return [r[0] for r in rows]
+
+# ========== Procedure CRUD ==========
+
+def create_procedure(db: Session, bot_id: int, department: str, name: str,
+                      sessions_required: int = 1, fee_per_session: float = 0.0,
+                      description: str = "", upsell_with: list = None) -> "Procedure":
+    proc = Procedure(
+        bot_id=bot_id, department=department, name=name,
+        sessions_required=sessions_required, fee_per_session=fee_per_session,
+        description=description, upsell_with_json=json.dumps(upsell_with or []),
+    )
+    db.add(proc)
+    db.commit()
+    db.refresh(proc)
+    return proc
+
+def get_procedures_by_bot(db: Session, bot_id: int, active_only: bool = True):
+    q = db.query(Procedure).filter(Procedure.bot_id == bot_id)
+    if active_only:
+        q = q.filter(Procedure.active == True)
+    return q.order_by(Procedure.department, Procedure.name).all()
+
+def get_procedures_by_department(db: Session, bot_id: int, department: str, active_only: bool = True):
+    q = db.query(Procedure).filter(Procedure.bot_id == bot_id, Procedure.department == department)
+    if active_only:
+        q = q.filter(Procedure.active == True)
+    return q.order_by(Procedure.name).all()
+
+def get_procedure_by_id(db: Session, bot_id: int, procedure_id: int):
+    return db.query(Procedure).filter(Procedure.id == procedure_id, Procedure.bot_id == bot_id).first()
+
+def update_procedure(db: Session, procedure: "Procedure", data: dict) -> "Procedure":
+    for key in ("department", "name", "sessions_required", "fee_per_session", "description", "active"):
+        if key in data:
+            setattr(procedure, key, data[key])
+    if "upsell_with" in data:
+        procedure.upsell_with_json = json.dumps(data["upsell_with"] or [])
+    db.commit()
+    db.refresh(procedure)
+    return procedure
+
+def delete_procedure(db: Session, procedure: "Procedure"):
+    db.delete(procedure)
+    db.commit()
+
+# ========== Slot Availability ==========
+
+def get_doctor_appointments_on_date(db: Session, bot_id: int, doctor_id: int, appointment_date: str):
+    """All active (Confirmed/Rescheduled) appointments for a doctor on a given normalized YYYY-MM-DD date."""
+    return (
+        db.query(Appointment)
+        .filter(
+            Appointment.bot_id == bot_id,
+            Appointment.doctor_id == doctor_id,
+            Appointment.appointment_date == appointment_date,
+            Appointment.status.in_(["Confirmed", "Rescheduled"]),
+        )
+        .all()
+    )
 
 # ========== Lab Report CRUD ==========
 
