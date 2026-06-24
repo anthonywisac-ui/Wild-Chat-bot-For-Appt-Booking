@@ -325,6 +325,21 @@
                             <label class="block text-xs font-bold text-slate-500 mb-1">Forwarding URL (Optional)</label>
                             <input type="text" id="editCredForward" class="input-field py-2 text-sm" placeholder="https://your-server.com/webhook">
                         </div>
+                        <div class="border-t border-slate-700 pt-4 mt-2">
+                            <label class="block text-xs font-bold text-slate-500 mb-1">AI Provider</label>
+                            <select id="editCredAiProvider" class="input-field py-2 text-sm">
+                                <option value="groq">Groq</option>
+                                <option value="gemini">Gemini</option>
+                                <option value="openai">OpenAI</option>
+                                <option value="minimax">Minimax</option>
+                                <option value="anthropic">Anthropic</option>
+                                <option value="openrouter">OpenRouter</option>
+                            </select>
+                        </div>
+                        <div class="group">
+                            <label class="block text-xs font-bold text-slate-500 mb-1">AI API Key (for the provider selected above)</label>
+                            <input type="password" id="editCredAiKey" class="input-field py-2 text-sm" placeholder="Leave blank to keep existing key">
+                        </div>
                         <div class="pt-4 flex gap-3">
                             <button onclick="closeCredentialsModal()" class="flex-1 bg-slate-800 hover:bg-slate-700 py-3 rounded-xl font-bold transition-all">Cancel</button>
                             <button onclick="saveBotCredentials()" class="flex-[2] gradient-bg hover:opacity-90 py-3 rounded-xl font-bold shadow-lg shadow-emerald-500/20 transition-all">Save Changes</button>
@@ -919,6 +934,8 @@
         document.getElementById('editCredPhoneId').value = b.phone_number_id || '';
         document.getElementById('editCredWabaId').value = b.waba_id || '';
         document.getElementById('editCredForward').value = b.forwarding_url || '';
+        document.getElementById('editCredAiProvider').value = b.ai_provider || 'groq';
+        document.getElementById('editCredAiKey').value = '';
         document.getElementById('credentialsModal').classList.remove('hidden');
     }
 
@@ -932,11 +949,15 @@
             name: document.getElementById('editCredName').value.trim(),
             phone_number_id: document.getElementById('editCredPhoneId').value.trim(),
             waba_id: document.getElementById('editCredWabaId').value.trim(),
-            forwarding_url: document.getElementById('editCredForward').value.trim()
+            forwarding_url: document.getElementById('editCredForward').value.trim(),
+            ai_provider: document.getElementById('editCredAiProvider').value
         };
-        
+
         const token = document.getElementById('editCredToken').value.trim();
         if (token) payload.meta_token = token;
+
+        const aiKey = document.getElementById('editCredAiKey').value.trim();
+        if (aiKey) payload.ai_api_key = aiKey;
 
         try {
             await apiCall(`/api/crm/bots/whatsapp/${id}`, 'PUT', payload);
