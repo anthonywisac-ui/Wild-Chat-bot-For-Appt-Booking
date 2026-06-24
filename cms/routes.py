@@ -205,6 +205,7 @@ def list_knowledge_documents(
 class DoctorCreate(BaseModel):
     department: str            # "dental" | "aesthetic"
     name: str
+    gender: str = ""            # "male" | "female" | ""
     bio: str = ""
     consultation_fee: float = 0.0
     other_fees: Dict[str, float] = {}
@@ -214,6 +215,7 @@ class DoctorCreate(BaseModel):
 class DoctorUpdate(BaseModel):
     department: Optional[str] = None
     name: Optional[str] = None
+    gender: Optional[str] = None
     bio: Optional[str] = None
     consultation_fee: Optional[float] = None
     other_fees: Optional[Dict[str, float]] = None
@@ -224,7 +226,7 @@ class DoctorUpdate(BaseModel):
 def _doctor_to_dict(d) -> dict:
     return {
         "id": d.id, "bot_id": d.bot_id, "department": d.department, "name": d.name,
-        "bio": d.bio, "consultation_fee": d.consultation_fee,
+        "gender": d.gender, "bio": d.bio, "consultation_fee": d.consultation_fee,
         "other_fees": json.loads(d.other_fees_json or "{}"),
         "shifts": json.loads(d.shift_json or "{}"),
         "active": d.active, "created_at": d.created_at,
@@ -254,8 +256,9 @@ def _resync_clinic_profile(bot_id: int, db: Session) -> None:
     for d in doctors:
         shifts = json.loads(d.shift_json or "{}")
         shift_text = ", ".join(f"{day}: {hrs}" for day, hrs in shifts.items() if hrs) or "schedule not set"
+        gender_text = f" ({d.gender})" if d.gender else ""
         lines.append(
-            f"Dr. {d.name} ({d.department.title()} department). {d.bio or ''} "
+            f"Dr. {d.name}{gender_text} ({d.department.title()} department). {d.bio or ''} "
             f"Consultation fee: ${d.consultation_fee:.0f}. Available: {shift_text}."
         )
     for p in procedures:
@@ -294,6 +297,7 @@ def add_doctor(
     doc = create_doctor(
         db, bot_id=bot_id, department=data.department, name=data.name, bio=data.bio,
         consultation_fee=data.consultation_fee, other_fees=data.other_fees, shifts=data.shifts,
+        gender=data.gender,
     )
     _resync_clinic_profile(bot_id, db)
     return _doctor_to_dict(doc)

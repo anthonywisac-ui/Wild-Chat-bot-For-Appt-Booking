@@ -316,6 +316,7 @@ class Doctor(Base):
     bot_id = Column(Integer, ForeignKey("whatsapp_bots.id", ondelete="CASCADE"), nullable=False, index=True)
     department = Column(String, nullable=False, index=True)  # "dental" | "aesthetic"
     name = Column(String, nullable=False)
+    gender = Column(String, default="")           # "male" | "female" | "" (unspecified)
     bio = Column(Text, default="")               # short description of specialty/experience
     consultation_fee = Column(Float, default=0.0)
     other_fees_json = Column(Text, default="{}")  # e.g. {"X-Ray": 20, "Cleaning": 50}
@@ -516,9 +517,10 @@ def create_appointment(db: Session, owner_id: int, bot_id: int, customer_phone: 
 # ========== Doctor CRUD ==========
 
 def create_doctor(db: Session, bot_id: int, department: str, name: str, bio: str = "",
-                   consultation_fee: float = 0.0, other_fees: dict = None, shifts: dict = None) -> "Doctor":
+                   consultation_fee: float = 0.0, other_fees: dict = None, shifts: dict = None,
+                   gender: str = "") -> "Doctor":
     doc = Doctor(
-        bot_id=bot_id, department=department, name=name, bio=bio,
+        bot_id=bot_id, department=department, name=name, bio=bio, gender=gender,
         consultation_fee=consultation_fee,
         other_fees_json=json.dumps(other_fees or {}),
         shift_json=json.dumps(shifts or {}),
@@ -544,7 +546,7 @@ def get_doctor_by_id(db: Session, bot_id: int, doctor_id: int):
     return db.query(Doctor).filter(Doctor.id == doctor_id, Doctor.bot_id == bot_id).first()
 
 def update_doctor(db: Session, doctor: "Doctor", data: dict) -> "Doctor":
-    for key in ("department", "name", "bio", "consultation_fee", "active"):
+    for key in ("department", "name", "gender", "bio", "consultation_fee", "active"):
         if key in data:
             setattr(doctor, key, data[key])
     if "other_fees" in data:

@@ -1,0 +1,240 @@
+# bots/appointment/services/appointment_service.py
+#
+# Business logic layer. Takes whatever entities the conversation has accumulated
+# (in any order, across any number of turns) and:
+#   - resolves them against REAL clinic data (actual doctors/procedures, not guesses)
+#   - validates date/time against doctor shifts and existing bookings
+#   - executes the actual DB write when the patient confirms
+#
+# This is where "the backend acts as executor" — no LLM calls happen in this
+# file except the date/time AI-assist fallback (ai/slotfill), which is itself
+# re-validated deterministically before being trusted.
+
+from __future__ import annotations
+
+from db import (
+    get_doctors_by_bot, get_doctors_by_department, get_procedures_by_bot,
+    get_procedures_by_department, get_doctor_by_id, get_procedure_by_id,
+    create_appointment, get_upcoming_appointments, get_appointment_by_id,
+    cancel_appointment, reschedule_appointment,
+)
+from utils_datetime import (
+    parse_date, parse_time, check_doctor_shift, check_slot_conflict,
+    format_date, format_time, get_working_days_summary,
+)
+from ai.slotfill import interpret_date_or_time
+from bots.appointment.departments import DEPARTMENTS
+from datetime import datetime as _dt
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# Matching real records against free-text entities
+# ──────────────────────────────────────────────────────────────────────────
+
+def resolve_department(memory: dict, bot, db) -> str | None:
+    if memory.get("department") in DEPARTMENTS:
+        return memory["department"]
+
+    text = " ".join(filter(None, [memory.get("treatment"), memory.get("concern")])).lower()
+    if not text:
+        return None
+
+    # Match against real procedure names first (most reliable signal)
+    for proc in get_procedures_by_bot(db, bot.id):
+        if proc.name.lower() in text or text in proc.name.lower():
+            return proc.department
+
+    # Fall back to department descriptions (keyword-ish but based on real catalog, not guesses)
+    for slug, info in DEPARTMENTS.items():
+        keywords = [w.lower() for w in info["description"].replace(",", " ").split() if len(w) > 4]
+        if any(kw in text for kw in keywords):
+            return slug
+
+    return None
+
+
+def resolve_procedure(memory: dict, bot, db, department: str | None):
+    treatment_text = (memory.get("treatment") or "").strip().lower()
+    if not treatment_text:
+        return None
+
+    candidates = get_procedures_by_department(db, bot.id, department) if department else get_procedures_by_bot(db, bot.id)
+    for proc in candidates:
+        if proc.name.lower() in treatment_text or treatment_text in proc.name.lower():
+            return proc
+    return None
+
+
+def resolve_doctor(memory: dict, bot, db, department: str | None):
+    """Picks a doctor based on explicit preference (gender/name) when given,
+    otherwise the first available doctor in the resolved department — booking
+    should never stall just because the patient didn't name a specific doctor."""
+    if memory.get("doctor_id"):
+        existing = get_doctor_by_id(db, bot.id, memory["doctor_id"])
+        if existing:
+            return existing
+
+    pool = get_doctors_by_department(db, bot.id, department) if department else get_doctors_by_bot(db, bot.id)
+    if not pool:
+        return None
+
+    preference = (memory.get("doctor_preference") or "").strip().lower()
+    if preference:
+        for doc in pool:
+            if preference in doc.name.lower():
+                return doc
+        for doc in pool:
+            if doc.gender and doc.gender.lower() in preference:
+                return doc
+
+    return pool[0]
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# Entity resolution pass — called every turn while booking is in progress
+# ──────────────────────────────────────────────────────────────────────────
+
+async def resolve_and_validate(memory: dict, bot, db) -> dict:
+    """
+    Updates memory in-place with resolved department/procedure_id/doctor_id and,
+    if both date and time are known, normalized date_iso/time_24h.
+
+    Returns: {"missing": [...], "blocking_error": str|None}
+    blocking_error is set when a resolved date/time conflicts with the doctor's
+    shift or an existing booking — the caller should surface this and clear the
+    relevant memory field so the patient is asked again.
+    """
+    department = resolve_department(memory, bot, db)
+    if department:
+        memory["department"] = department
+
+    if not memory.get("procedure_id") and memory.get("treatment"):
+        proc = resolve_procedure(memory, bot, db, department)
+        if proc:
+            memory["procedure_id"] = proc.id
+            memory["department"] = proc.department
+            memory["fee_estimate"] = proc.fee_per_session * proc.sessions_required
+
+    if not memory.get("doctor_id"):
+        doctor = resolve_doctor(memory, bot, db, memory.get("department"))
+        if doctor:
+            memory["doctor_id"] = doctor.id
+            if not memory.get("fee_estimate"):
+                memory["fee_estimate"] = doctor.consultation_fee
+
+    missing = []
+    if not memory.get("department") and not memory.get("treatment") and not memory.get("concern"):
+        missing.append("treatment")
+    if not memory.get("date_text") and not memory.get("date_iso"):
+        missing.append("date")
+    if not memory.get("time_text") and not memory.get("time_24h"):
+        missing.append("time")
+
+    blocking_error = None
+    if memory.get("date_text") and memory.get("time_text") and not (memory.get("date_iso") and memory.get("time_24h")):
+        blocking_error = await normalize_date_time(memory, bot, db)
+
+    return {"missing": missing, "blocking_error": blocking_error}
+
+
+async def normalize_date_time(memory: dict, bot, db) -> str | None:
+    """Tries to turn date_text/time_text into canonical date_iso/time_24h.
+    Returns an error string (and clears the offending field) on failure."""
+    parsed_date = parse_date(memory["date_text"])
+    if not parsed_date:
+        ai_result = await interpret_date_or_time("date", memory["date_text"], bot, db)
+        if ai_result.get("extracted"):
+            parsed_date = parse_date(ai_result["extracted"])
+        if not parsed_date:
+            memory["date_text"] = None
+            return ai_result.get("reply") or "What date works best for you?"
+
+    parsed_time = parse_time(memory["time_text"])
+    if not parsed_time:
+        ai_result = await interpret_date_or_time("time", memory["time_text"], bot, db)
+        if ai_result.get("extracted"):
+            parsed_time = parse_time(ai_result["extracted"])
+        if not parsed_time:
+            memory["time_text"] = None
+            return ai_result.get("reply") or "What time works best for you?"
+
+    doctor = get_doctor_by_id(db, bot.id, memory["doctor_id"]) if memory.get("doctor_id") else None
+    if doctor:
+        available, shift_msg = check_doctor_shift(doctor, parsed_date, parsed_time)
+        if not available:
+            memory["date_text"] = None
+            memory["time_text"] = None
+            return shift_msg
+
+        time_str = parsed_time.strftime("%H:%M")
+        date_str = parsed_date.strftime("%Y-%m-%d")
+        conflict, conflict_msg = check_slot_conflict(db, bot.id, doctor.id, date_str, time_str)
+        if conflict:
+            memory["time_text"] = None
+            return conflict_msg
+
+    memory["date_iso"] = parsed_date.strftime("%Y-%m-%d")
+    memory["time_24h"] = parsed_time.strftime("%H:%M")
+    return None
+
+
+def is_ready_to_confirm(memory: dict) -> bool:
+    return bool(memory.get("date_iso") and memory.get("time_24h") and (memory.get("department") or memory.get("procedure_id")))
+
+
+def booking_summary_text(memory: dict, bot, db) -> str:
+    doctor = get_doctor_by_id(db, bot.id, memory["doctor_id"]) if memory.get("doctor_id") else None
+    procedure = get_procedure_by_id(db, bot.id, memory["procedure_id"]) if memory.get("procedure_id") else None
+
+    parts = []
+    if procedure:
+        parts.append(f"{procedure.name}")
+    elif memory.get("treatment"):
+        parts.append(memory["treatment"])
+    else:
+        parts.append("Consultation")
+    if doctor:
+        parts.append(f"with Dr. {doctor.name}")
+
+    date_obj = _dt.strptime(memory["date_iso"], "%Y-%m-%d").date()
+    time_obj = _dt.strptime(memory["time_24h"], "%H:%M").time()
+
+    fee = memory.get("fee_estimate") or (doctor.consultation_fee if doctor else 0.0)
+    return (
+        f"{' '.join(parts)}\n"
+        f"📅 {format_date(date_obj)}\n"
+        f"⏰ {format_time(time_obj)}\n"
+        f"💰 ${fee:.0f}"
+    )
+
+
+def finalize_booking(memory: dict, bot, db, sender: str):
+    return create_appointment(
+        db, owner_id=bot.owner_id, bot_id=bot.id, customer_phone=sender,
+        service=memory.get("treatment") or "Consultation",
+        appointment_date=memory["date_iso"], appointment_time=memory["time_24h"],
+        department=memory.get("department") or "", doctor_id=memory.get("doctor_id"),
+        consultation_fee=memory.get("fee_estimate") or 0.0,
+        procedure_id=memory.get("procedure_id"),
+        customer_name=memory.get("patient_name") or "",
+    )
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# View / cancel / reschedule — thin wrappers for cohesion with this layer
+# ──────────────────────────────────────────────────────────────────────────
+
+def list_upcoming(bot, db, sender: str):
+    return get_upcoming_appointments(db, bot.id, sender)
+
+
+def find_appointment(bot, db, sender: str, appointment_id: int):
+    return get_appointment_by_id(db, bot.id, sender, appointment_id)
+
+
+def cancel(db, appointment):
+    return cancel_appointment(db, appointment)
+
+
+def reschedule(db, appointment, new_date_iso: str, new_time_24h: str):
+    return reschedule_appointment(db, appointment, new_date_iso, new_time_24h)
