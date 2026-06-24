@@ -93,3 +93,33 @@ class MetaProvider:
         except Exception as exc:
             logger.error(f"[MetaProvider] send_document exception: {exc}")
             return False
+
+    async def download_media(self, media_id: str) -> tuple[bytes, str] | None:
+        """
+        Downloads an inbound media file (e.g. a lab report PDF) by its media_id.
+        Returns (file_bytes, mime_type), or None on failure.
+        """
+        meta_url = f"https://graph.facebook.com/{META_API_VERSION}/{media_id}"
+        headers = {"Authorization": f"Bearer {self.token}"}
+        try:
+            session = await SharedSession.get_session()
+            async with session.get(meta_url, headers=headers) as resp:
+                if resp.status >= 400:
+                    logger.error(f"[MetaProvider] media lookup failed {resp.status}")
+                    return None
+                meta = await resp.json()
+                file_url = meta.get("url")
+                mime_type = meta.get("mime_type", "")
+
+            if not file_url:
+                return None
+
+            async with session.get(file_url, headers=headers) as file_resp:
+                if file_resp.status >= 400:
+                    logger.error(f"[MetaProvider] media download failed {file_resp.status}")
+                    return None
+                content = await file_resp.read()
+                return content, mime_type
+        except Exception as exc:
+            logger.error(f"[MetaProvider] download_media exception: {exc}")
+            return None

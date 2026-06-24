@@ -68,6 +68,84 @@ async def send_document_v2(to, file_path, filename, bot: WhatsappBot, caption: s
     provider = MetaProvider(bot)
     return await provider.send_document(to, file_path, filename, caption)
 
+async def send_interactive_list(to, header_text, body_text, button_text, sections, bot: WhatsappBot):
+    """
+    Sends a native WhatsApp List Message (Meta) — up to 10 rows per section.
+    For wwebjs bots, the wwebjs provider auto-converts this into a numbered
+    text menu and remembers the row IDs so numeric replies still work.
+
+    sections: [{"title": str, "rows": [{"id": str, "title": str, "description": str}, ...]}]
+    """
+    payload = {
+        "messaging_product": "whatsapp",
+        "to": to,
+        "type": "interactive",
+        "interactive": {
+            "type": "list",
+            "header": {"type": "text", "text": header_text},
+            "body": {"text": body_text},
+            "action": {"button": button_text, "sections": sections},
+        },
+    }
+
+    if bot and getattr(bot, "provider", "meta") == "wwebjs":
+        from providers.wwebjs import WwebjsProvider
+        provider = WwebjsProvider(bot)
+        return await provider.dispatch_payload(payload)
+
+    token    = bot.meta_token    if bot and bot.meta_token    else WHATSAPP_TOKEN
+    phone_id = bot.phone_number_id if bot and bot.phone_number_id else WHATSAPP_PHONE_NUMBER_ID
+    url      = f"https://graph.facebook.com/{WHATSAPP_API_VERSION}/{phone_id}/messages"
+    headers  = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+    try:
+        session = await SharedSession.get_session()
+        async with session.post(url, json=payload, headers=headers) as r:
+            if r.status >= 400:
+                body = await r.text()
+                print(f"send_interactive_list failed {r.status}: {body}")
+                return False
+            return True
+    except Exception as e:
+        print(f"send_interactive_list exception: {e}")
+        return False
+
+async def send_interactive_buttons(to, body_text, buttons, bot: WhatsappBot):
+    """
+    Sends up to 3 quick-reply buttons (Meta limit). buttons: [{"id": str, "title": str}, ...]
+    Falls back to numbered text for wwebjs bots (same conversion as lists).
+    """
+    payload = {
+        "messaging_product": "whatsapp",
+        "to": to,
+        "type": "interactive",
+        "interactive": {
+            "type": "button",
+            "body": {"text": body_text},
+            "action": {"buttons": [{"type": "reply", "reply": {"id": b["id"], "title": b["title"]}} for b in buttons[:3]]},
+        },
+    }
+
+    if bot and getattr(bot, "provider", "meta") == "wwebjs":
+        from providers.wwebjs import WwebjsProvider
+        provider = WwebjsProvider(bot)
+        return await provider.dispatch_payload(payload)
+
+    token    = bot.meta_token    if bot and bot.meta_token    else WHATSAPP_TOKEN
+    phone_id = bot.phone_number_id if bot and bot.phone_number_id else WHATSAPP_PHONE_NUMBER_ID
+    url      = f"https://graph.facebook.com/{WHATSAPP_API_VERSION}/{phone_id}/messages"
+    headers  = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+    try:
+        session = await SharedSession.get_session()
+        async with session.post(url, json=payload, headers=headers) as r:
+            if r.status >= 400:
+                body = await r.text()
+                print(f"send_interactive_buttons failed {r.status}: {body}")
+                return False
+            return True
+    except Exception as e:
+        print(f"send_interactive_buttons exception: {e}")
+        return False
+
 async def send_language_selection(sender):
     url = f"https://graph.facebook.com/{WHATSAPP_API_VERSION}/{WHATSAPP_PHONE_NUMBER_ID}/messages"
     headers = {"Authorization": f"Bearer {WHATSAPP_TOKEN}", "Content-Type": "application/json"}

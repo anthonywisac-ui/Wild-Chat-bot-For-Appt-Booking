@@ -19,10 +19,11 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 PDF_OUTPUT_DIR = os.getenv("PDF_OUTPUT_DIR", os.path.join(tempfile.gettempdir(), "appointment_pdfs"))
 
 
-def generate_appointment_pdf(appointment, bot) -> str:
+def generate_appointment_pdf(appointment, bot, doctor=None) -> str:
     """
     appointment: db.Appointment instance
     bot: db.WhatsappBot instance
+    doctor: optional db.Doctor instance (adds department/doctor name/fee rows)
     Returns the absolute file path of the generated PDF.
     """
     os.makedirs(PDF_OUTPUT_DIR, exist_ok=True)
@@ -57,13 +58,23 @@ def generate_appointment_pdf(appointment, bot) -> str:
     rows = [
         ["Appointment ID", f"#{appointment.id}"],
         ["Status", appointment.status],
-        ["Service", appointment.service or "-"],
-        ["Date", appointment.appointment_date or "-"],
-        ["Time", appointment.appointment_time or "-"],
-        ["Customer", appointment.customer_name or appointment.customer_phone],
-        ["Phone", appointment.customer_phone],
-        ["Notes", appointment.notes or "-"],
     ]
+    if doctor is not None:
+        rows.append(["Department", (appointment.department or doctor.department or "-").title()])
+        rows.append(["Doctor", f"Dr. {doctor.name}"])
+    elif appointment.department:
+        rows.append(["Department", appointment.department.title()])
+
+    rows.append(["Service", appointment.service or "-"])
+    rows.append(["Date", appointment.appointment_date or "-"])
+    rows.append(["Time", appointment.appointment_time or "-"])
+
+    if appointment.consultation_fee:
+        rows.append(["Consultation Fee", f"${appointment.consultation_fee:.0f}"])
+
+    rows.append(["Customer", appointment.customer_name or appointment.customer_phone])
+    rows.append(["Phone", appointment.customer_phone])
+    rows.append(["Notes", appointment.notes or "-"])
     table = Table(rows, colWidths=[140, 320])
     table.setStyle(TableStyle([
         ("FONTNAME", (0, 0), (0, -1), "Helvetica-Bold"),

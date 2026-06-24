@@ -297,6 +297,9 @@ class Appointment(Base):
     customer_phone = Column(String, index=True, default="")
     customer_name = Column(String, default="")
     service = Column(String, default="")
+    department = Column(String, default="")   # e.g. "dental" | "aesthetic"
+    doctor_id = Column(Integer, ForeignKey("doctors.id", ondelete="SET NULL"), nullable=True, index=True)
+    consultation_fee = Column(Float, default=0.0)
     appointment_date = Column(String, default="")   # free-form or normalized YYYY-MM-DD
     appointment_time = Column(String, default="")    # free-form or normalized HH:MM
     status = Column(String, default="Confirmed", index=True)  # Confirmed | Cancelled | Rescheduled | Completed
@@ -304,6 +307,33 @@ class Appointment(Base):
     reminder_sent = Column(Boolean, default=False)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+class Doctor(Base):
+    """A doctor/specialist offered by a clinic bot, scoped to one department."""
+    __tablename__ = "doctors"
+    id = Column(Integer, primary_key=True, index=True)
+    bot_id = Column(Integer, ForeignKey("whatsapp_bots.id", ondelete="CASCADE"), nullable=False, index=True)
+    department = Column(String, nullable=False, index=True)  # "dental" | "aesthetic"
+    name = Column(String, nullable=False)
+    bio = Column(Text, default="")               # short description of specialty/experience
+    consultation_fee = Column(Float, default=0.0)
+    other_fees_json = Column(Text, default="{}")  # e.g. {"X-Ray": 20, "Cleaning": 50}
+    shift_json = Column(Text, default="{}")        # e.g. {"mon": "10:00-18:00", "tue": "off", ...}
+    active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+class LabReport(Base):
+    """Audit trail of lab reports uploaded by patients + the AI's doctor recommendation."""
+    __tablename__ = "lab_reports"
+    id = Column(Integer, primary_key=True, index=True)
+    bot_id = Column(Integer, ForeignKey("whatsapp_bots.id", ondelete="CASCADE"), nullable=False, index=True)
+    customer_phone = Column(String, index=True, default="")
+    filename = Column(String, default="")
+    extracted_text_excerpt = Column(Text, default="")
+    department_recommended = Column(String, default="")
+    doctor_recommended_id = Column(Integer, ForeignKey("doctors.id", ondelete="SET NULL"), nullable=True)
+    ai_summary = Column(Text, default="")
+    created_at = Column(DateTime, default=datetime.utcnow)
 
 class KnowledgeDocument(Base):
     """Source documents ingested into the per-bot RAG knowledge base (ai/rag.py)."""
@@ -450,10 +480,12 @@ def get_session_data(db: Session, bot_id: int, phone: str):
 
 def create_appointment(db: Session, owner_id: int, bot_id: int, customer_phone: str,
                         service: str, appointment_date: str, appointment_time: str,
-                        customer_name: str = "", notes: str = "") -> "Appointment":
+                        customer_name: str = "", notes: str = "", department: str = "",
+                        doctor_id: int = None, consultation_fee: float = 0.0) -> "Appointment":
     appt = Appointment(
         owner_id=owner_id, bot_id=bot_id, customer_phone=customer_phone,
-        customer_name=customer_name, service=service,
+        customer_name=customer_name, service=service, department=department,
+        doctor_id=doctor_id, consultation_fee=consultation_fee,
         appointment_date=appointment_date, appointment_time=appointment_time,
         status="Confirmed", notes=notes,
     )
@@ -464,6 +496,73 @@ def create_appointment(db: Session, owner_id: int, bot_id: int, customer_phone: 
                   f"#{appt.id} | {service} | {appointment_date} {appointment_time}",
                   customer_phone=customer_phone)
     return appt
+
+# ========== Doctor CRUD ==========
+
+def create_doctor(db: Session, bot_id: int, department: str, name: str, bio: str = "",
+                   consultation_fee: float = 0.0, other_fees: dict = None, shifts: dict = None) -> "Doctor":
+    doc = Doctor(
+        bot_id=bot_id, department=department, name=name, bio=bio,
+        consultation_fee=consultation_fee,
+        other_fees_json=json.dumps(other_fees or {}),
+        shift_json=json.dumps(shifts or {}),
+    )
+    db.add(doc)
+    db.commit()
+    db.refresh(doc)
+    return doc
+
+def get_doctors_by_bot(db: Session, bot_id: int, active_only: bool = True):
+    q = db.query(Doctor).filter(Doctor.bot_id == bot_id)
+    if active_only:
+        q = q.filter(Doctor.active == True)
+    return q.order_by(Doctor.department, Doctor.name).all()
+
+def get_doctors_by_department(db: Session, bot_id: int, department: str, active_only: bool = True):
+    q = db.query(Doctor).filter(Doctor.bot_id == bot_id, Doctor.department == department)
+    if active_only:
+        q = q.filter(Doctor.active == True)
+    return q.order_by(Doctor.name).all()
+
+def get_doctor_by_id(db: Session, bot_id: int, doctor_id: int):
+    return db.query(Doctor).filter(Doctor.id == doctor_id, Doctor.bot_id == bot_id).first()
+
+def update_doctor(db: Session, doctor: "Doctor", data: dict) -> "Doctor":
+    for key in ("department", "name", "bio", "consultation_fee", "active"):
+        if key in data:
+            setattr(doctor, key, data[key])
+    if "other_fees" in data:
+        doctor.other_fees_json = json.dumps(data["other_fees"] or {})
+    if "shifts" in data:
+        doctor.shift_json = json.dumps(data["shifts"] or {})
+    db.commit()
+    db.refresh(doctor)
+    return doctor
+
+def delete_doctor(db: Session, doctor: "Doctor"):
+    db.delete(doctor)
+    db.commit()
+
+def get_enabled_departments_for_bot(db: Session, bot_id: int) -> list:
+    """A department is 'enabled' for a bot if it has at least one active doctor configured."""
+    rows = db.query(Doctor.department).filter(Doctor.bot_id == bot_id, Doctor.active == True).distinct().all()
+    return [r[0] for r in rows]
+
+# ========== Lab Report CRUD ==========
+
+def create_lab_report(db: Session, bot_id: int, customer_phone: str, filename: str,
+                       extracted_text_excerpt: str, department_recommended: str = "",
+                       doctor_recommended_id: int = None, ai_summary: str = "") -> "LabReport":
+    report = LabReport(
+        bot_id=bot_id, customer_phone=customer_phone, filename=filename,
+        extracted_text_excerpt=extracted_text_excerpt[:2000],
+        department_recommended=department_recommended,
+        doctor_recommended_id=doctor_recommended_id, ai_summary=ai_summary,
+    )
+    db.add(report)
+    db.commit()
+    db.refresh(report)
+    return report
 
 def get_upcoming_appointments(db: Session, bot_id: int, customer_phone: str):
     return (

@@ -5,10 +5,11 @@ from sqlalchemy.orm import Session
 from db import (
     get_db, User, get_user_by_username, create_user, WhatsappBot,
     add_knowledge_document, get_knowledge_documents,
+    create_doctor, get_doctors_by_bot, get_doctor_by_id, update_doctor, delete_doctor,
 )
 from auth import verify_password, get_password_hash, create_access_token, decode_token
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional, Dict
 import subprocess
 import json
 import os
@@ -194,6 +195,100 @@ def list_knowledge_documents(
          "chunks": d.chunk_count, "created_at": d.created_at}
         for d in docs
     ]
+
+
+# ============================================================
+# Doctors (Dental / Aesthetic departments)
+# ============================================================
+
+class DoctorCreate(BaseModel):
+    department: str            # "dental" | "aesthetic"
+    name: str
+    bio: str = ""
+    consultation_fee: float = 0.0
+    other_fees: Dict[str, float] = {}
+    shifts: Dict[str, str] = {}  # {"mon": "10:00-18:00", "tue": "off", ...}
+
+
+class DoctorUpdate(BaseModel):
+    department: Optional[str] = None
+    name: Optional[str] = None
+    bio: Optional[str] = None
+    consultation_fee: Optional[float] = None
+    other_fees: Optional[Dict[str, float]] = None
+    shifts: Optional[Dict[str, str]] = None
+    active: Optional[bool] = None
+
+
+def _doctor_to_dict(d) -> dict:
+    return {
+        "id": d.id, "bot_id": d.bot_id, "department": d.department, "name": d.name,
+        "bio": d.bio, "consultation_fee": d.consultation_fee,
+        "other_fees": json.loads(d.other_fees_json or "{}"),
+        "shifts": json.loads(d.shift_json or "{}"),
+        "active": d.active, "created_at": d.created_at,
+    }
+
+
+@router.post("/bots/{bot_id}/doctors", summary="Add a doctor to a bot's Dental/Aesthetic roster")
+def add_doctor(
+    bot_id: int,
+    data: DoctorCreate,
+    db: Session = Depends(get_db),
+    current_admin: User = Depends(get_current_admin),
+):
+    bot = db.query(WhatsappBot).filter(WhatsappBot.id == bot_id).first()
+    if not bot:
+        raise HTTPException(404, "Bot not found")
+    if data.department not in ("dental", "aesthetic"):
+        raise HTTPException(400, "department must be 'dental' or 'aesthetic'")
+
+    doc = create_doctor(
+        db, bot_id=bot_id, department=data.department, name=data.name, bio=data.bio,
+        consultation_fee=data.consultation_fee, other_fees=data.other_fees, shifts=data.shifts,
+    )
+    return _doctor_to_dict(doc)
+
+
+@router.get("/bots/{bot_id}/doctors", summary="List all doctors for a bot")
+def list_doctors(
+    bot_id: int,
+    db: Session = Depends(get_db),
+    current_admin: User = Depends(get_current_admin),
+):
+    doctors = get_doctors_by_bot(db, bot_id, active_only=False)
+    return [_doctor_to_dict(d) for d in doctors]
+
+
+@router.put("/bots/{bot_id}/doctors/{doctor_id}", summary="Update a doctor's details")
+def edit_doctor(
+    bot_id: int,
+    doctor_id: int,
+    data: DoctorUpdate,
+    db: Session = Depends(get_db),
+    current_admin: User = Depends(get_current_admin),
+):
+    doctor = get_doctor_by_id(db, bot_id, doctor_id)
+    if not doctor:
+        raise HTTPException(404, "Doctor not found")
+
+    payload = data.dict(exclude_unset=True)
+    updated = update_doctor(db, doctor, payload)
+    return _doctor_to_dict(updated)
+
+
+@router.delete("/bots/{bot_id}/doctors/{doctor_id}", summary="Remove a doctor")
+def remove_doctor(
+    bot_id: int,
+    doctor_id: int,
+    db: Session = Depends(get_db),
+    current_admin: User = Depends(get_current_admin),
+):
+    doctor = get_doctor_by_id(db, bot_id, doctor_id)
+    if not doctor:
+        raise HTTPException(404, "Doctor not found")
+    delete_doctor(db, doctor)
+    return {"message": f"Doctor #{doctor_id} removed"}
 
 
 # ============================================================

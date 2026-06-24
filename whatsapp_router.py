@@ -210,6 +210,14 @@ async def whatsapp_webhook(request: Request, background_tasks: BackgroundTasks, 
                     order_parts.append(f"ADD_{pid}:{qty}")
                 user_msg = "|".join(order_parts)
 
+        elif msg_type == "document":
+            # Lab report / file upload — handled specially by the appointment bot's flow
+            doc = message.get("document", {})
+            media_id = doc.get("id", "")
+            filename = doc.get("filename", "report.pdf")
+            if media_id:
+                user_msg = f"__DOCUMENT__:{media_id}:{filename}"
+
         if not user_msg:
             db.commit()
             return {"status": "ok"}
