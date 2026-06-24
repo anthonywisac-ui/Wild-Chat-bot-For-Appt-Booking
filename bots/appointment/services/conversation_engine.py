@@ -40,6 +40,8 @@ _AFFIRMATIVE_RE = re.compile(r"^(yes|yep|yeah|confirm|sure|ok(ay)?|sounds good|g
 _NEGATIVE_RE = re.compile(r"^(no|nope|not yet|cancel|wait|hold on|change)\b", re.IGNORECASE)
 _CANCEL_BTN_RE = re.compile(r"^CANCEL_(\d+)$")
 _RESCHED_BTN_RE = re.compile(r"^RESCHED_(\d+)$")
+_PROC_BTN_RE = re.compile(r"^PROC_(\d+)$")
+_DOC_BTN_RE = re.compile(r"^DOC_(\d+)$")
 
 BOOKING_CONFIRM_ID = "BOOKING_CONFIRM"
 BOOKING_CHANGE_ID = "BOOKING_CHANGE"
@@ -92,6 +94,30 @@ async def _reconnect_to_pending_request(memory: dict, bot, db) -> str | None:
 
 async def _handle_booking_intent(sender, memory: dict, bot, db) -> str | None:
     validation = await appointment_service.resolve_and_validate(memory, bot, db)
+
+    if validation["procedure_options"]:
+        rows = [{
+            "id": f"PROC_{p.id}", "title": p.name[:24],
+            "description": f"${p.fee_per_session:.0f}/session" + (f" x{p.sessions_required}" if p.sessions_required > 1 else ""),
+        } for p in validation["procedure_options"][:10]]
+        await send_interactive_list(
+            sender, "Recommended Treatments", "Which treatment are you interested in?",
+            "View Treatments", [{"title": "Treatments", "rows": rows}], bot,
+        )
+        memory["pending_question"] = "awaiting_procedure_choice"
+        return None
+
+    if validation["doctor_options"]:
+        rows = [{
+            "id": f"DOC_{d.id}", "title": f"Dr. {d.name}"[:24],
+            "description": f"${d.consultation_fee:.0f} • {(d.bio or 'Specialist')[:50]}",
+        } for d in validation["doctor_options"][:10]]
+        await send_interactive_list(
+            sender, "Choose a Doctor", "Which doctor would you prefer?",
+            "View Doctors", [{"title": "Doctors", "rows": rows}], bot,
+        )
+        memory["pending_question"] = "awaiting_doctor_choice"
+        return None
 
     if validation["blocking_error"]:
         directive = (
@@ -175,6 +201,39 @@ async def handle_turn(sender: str, text: str, bot, db) -> None:
         memory_store.append_history(memory, "assistant", reply)
         memory_store.save_memory(db, bot.id, sender, memory)
         await _send(sender, reply, bot)
+        return
+
+    proc_match = _PROC_BTN_RE.match(text_stripped)
+    doc_match = _DOC_BTN_RE.match(text_stripped)
+
+    if proc_match and memory.get("pending_question") == "awaiting_procedure_choice":
+        from db import get_procedure_by_id
+        proc = get_procedure_by_id(db, bot.id, int(proc_match.group(1)))
+        if proc:
+            memory["procedure_id"] = proc.id
+            memory["treatment"] = proc.name
+            memory["department"] = proc.department
+            memory["fee_estimate"] = proc.fee_per_session * proc.sessions_required
+        memory["pending_question"] = None
+        reply = await _handle_booking_intent(sender, memory, bot, db)
+        memory_store.append_history(memory, "assistant", reply or "")
+        memory_store.save_memory(db, bot.id, sender, memory)
+        if reply:
+            await _send(sender, reply, bot)
+        return
+
+    if doc_match and memory.get("pending_question") == "awaiting_doctor_choice":
+        doctor = get_doctor_by_id(db, bot.id, int(doc_match.group(1)))
+        if doctor:
+            memory["doctor_id"] = doctor.id
+            if not memory.get("fee_estimate"):
+                memory["fee_estimate"] = doctor.consultation_fee
+        memory["pending_question"] = None
+        reply = await _handle_booking_intent(sender, memory, bot, db)
+        memory_store.append_history(memory, "assistant", reply or "")
+        memory_store.save_memory(db, bot.id, sender, memory)
+        if reply:
+            await _send(sender, reply, bot)
         return
 
     # ── Mid-reschedule: this message should contain the new date/time ──────

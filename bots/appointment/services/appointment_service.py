@@ -67,9 +67,10 @@ def resolve_procedure(memory: dict, bot, db, department: str | None):
 
 
 def resolve_doctor(memory: dict, bot, db, department: str | None):
-    """Picks a doctor based on explicit preference (gender/name) when given,
-    otherwise the first available doctor in the resolved department — booking
-    should never stall just because the patient didn't name a specific doctor."""
+    """Picks a doctor based on explicit preference (gender/name) when given, or
+    auto-assigns when there's only one doctor to choose from. Returns None when
+    genuinely ambiguous (multiple doctors, no preference) — the caller should
+    then show a list instead of silently guessing who the patient wants."""
     if memory.get("doctor_id"):
         existing = get_doctor_by_id(db, bot.id, memory["doctor_id"])
         if existing:
@@ -78,6 +79,8 @@ def resolve_doctor(memory: dict, bot, db, department: str | None):
     pool = get_doctors_by_department(db, bot.id, department) if department else get_doctors_by_bot(db, bot.id)
     if not pool:
         return None
+    if len(pool) == 1:
+        return pool[0]
 
     preference = (memory.get("doctor_preference") or "").strip().lower()
     if preference:
@@ -88,7 +91,35 @@ def resolve_doctor(memory: dict, bot, db, department: str | None):
             if doc.gender and doc.gender.lower() in preference:
                 return doc
 
-    return pool[0]
+    return None  # ambiguous — let the caller offer a list
+
+
+def find_candidate_procedures(memory: dict, bot, db, department: str | None):
+    """When the patient mentioned a treatment/concern but it doesn't uniquely match
+    one procedure, returns the department's procedure list so the patient can pick —
+    instead of the bot silently guessing which treatment they meant."""
+    if not department:
+        return []
+    text = (memory.get("treatment") or memory.get("concern") or "").strip()
+    if not text:
+        return []
+    if resolve_procedure(memory, bot, db, department):
+        return []  # already matched uniquely, no ambiguity
+    candidates = get_procedures_by_department(db, bot.id, department)
+    return candidates if len(candidates) > 1 else []
+
+
+def find_candidate_doctors(memory: dict, bot, db, department: str | None):
+    """Returns the doctor list when genuinely ambiguous (multiple doctors, no
+    preference given/matched) — empty otherwise."""
+    if memory.get("doctor_id") or not department:
+        return []
+    pool = get_doctors_by_department(db, bot.id, department)
+    if len(pool) <= 1:
+        return []
+    if resolve_doctor(memory, bot, db, department):
+        return []  # preference matched uniquely
+    return pool
 
 
 # ──────────────────────────────────────────────────────────────────────────
@@ -147,10 +178,12 @@ async def resolve_and_validate(memory: dict, bot, db) -> dict:
     Updates memory in-place with resolved department/procedure_id/doctor_id and,
     if both date and time are known, normalized date_iso/time_24h.
 
-    Returns: {"missing": [...], "blocking_error": str|None}
+    Returns: {"missing": [...], "blocking_error": str|None, "procedure_options": [...], "doctor_options": [...]}
     blocking_error is set when a resolved date/time conflicts with the doctor's
     shift or an existing booking — the caller should surface this and clear the
     relevant memory field so the patient is asked again.
+    procedure_options/doctor_options are set when there's genuine ambiguity —
+    the caller should show a list and wait for a choice before continuing.
     """
     department = resolve_department(memory, bot, db)
     if department:
@@ -163,12 +196,20 @@ async def resolve_and_validate(memory: dict, bot, db) -> dict:
             memory["department"] = proc.department
             memory["fee_estimate"] = proc.fee_per_session * proc.sessions_required
 
+    procedure_options = find_candidate_procedures(memory, bot, db, memory.get("department"))
+    if procedure_options:
+        return {"missing": [], "blocking_error": None, "procedure_options": procedure_options, "doctor_options": []}
+
     if not memory.get("doctor_id"):
         doctor = resolve_doctor(memory, bot, db, memory.get("department"))
         if doctor:
             memory["doctor_id"] = doctor.id
             if not memory.get("fee_estimate"):
                 memory["fee_estimate"] = doctor.consultation_fee
+
+    doctor_options = find_candidate_doctors(memory, bot, db, memory.get("department"))
+    if doctor_options:
+        return {"missing": [], "blocking_error": None, "procedure_options": [], "doctor_options": doctor_options}
 
     missing = []
     if not memory.get("department") and not memory.get("treatment") and not memory.get("concern"):
@@ -187,7 +228,7 @@ async def resolve_and_validate(memory: dict, bot, db) -> dict:
     if memory.get("date_text") and memory.get("time_text") and not (memory.get("date_iso") and memory.get("time_24h")):
         blocking_error = await normalize_date_time(memory, bot, db)
 
-    return {"missing": missing, "blocking_error": blocking_error}
+    return {"missing": missing, "blocking_error": blocking_error, "procedure_options": [], "doctor_options": []}
 
 
 async def normalize_date_time(memory: dict, bot, db) -> str | None:
