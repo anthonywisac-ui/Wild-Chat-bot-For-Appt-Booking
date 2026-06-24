@@ -12,12 +12,15 @@
 
 from __future__ import annotations
 
+import json
+
 from db import (
     get_doctors_by_bot, get_doctors_by_department, get_procedures_by_bot,
     get_procedures_by_department, get_doctor_by_id, get_procedure_by_id,
     create_appointment, get_upcoming_appointments, get_appointment_by_id,
     cancel_appointment, reschedule_appointment,
     get_patient_profile, upsert_patient_profile,
+    upsert_lead,
 )
 from utils_datetime import (
     parse_date, parse_time, check_doctor_shift, check_slot_conflict,
@@ -120,6 +123,57 @@ def find_candidate_doctors(memory: dict, bot, db, department: str | None):
     if resolve_doctor(memory, bot, db, department):
         return []  # preference matched uniquely
     return pool
+
+
+def get_upsell_candidates(memory: dict, bot, db) -> list:
+    """Returns up to 2 admin-configured complementary procedures for the patient's
+    chosen treatment — used for a one-time, natural upsell offer (never forced)."""
+    if not memory.get("procedure_id"):
+        return []
+    proc = get_procedure_by_id(db, bot.id, memory["procedure_id"])
+    if not proc:
+        return []
+    upsell_names = json.loads(proc.upsell_with_json or "[]")
+    if not upsell_names:
+        return []
+    dept_procs = get_procedures_by_department(db, bot.id, proc.department)
+    return [p for p in dept_procs if p.name in upsell_names and p.id != proc.id][:2]
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# Lead qualification (CRM) — captured even before any appointment is booked
+# ──────────────────────────────────────────────────────────────────────────
+
+def save_lead_snapshot(memory: dict, bot, db, sender: str, status: str = None) -> None:
+    """Upserts whatever sales-relevant signals we've gathered so far. Called every
+    turn so the clinic's sales team has an up-to-date follow-up list even for
+    leads that never finish booking."""
+    has_signal = any(memory.get(f) for f in (
+        "goal", "concern", "secondary_concern", "timeline", "treatment", "budget_level", "lead_quality",
+    ))
+    if not has_signal:
+        return
+
+    data = {
+        "goal": memory.get("goal"),
+        "concern": memory.get("concern"),
+        "secondary_concern": memory.get("secondary_concern"),
+        "timeline": memory.get("timeline"),
+        "treatment_interest": memory.get("treatment"),
+        "budget_level": memory.get("budget_level"),
+        "lead_quality": memory.get("lead_quality"),
+        "buying_intention": memory.get("buying_intention"),
+        "estimated_value": memory.get("fee_estimate"),
+    }
+    if status:
+        data["status"] = status
+    elif memory.get("treatment") or memory.get("department"):
+        data["status"] = "qualified"
+
+    try:
+        upsert_lead(db, bot.id, sender, data)
+    except Exception:
+        pass  # CRM tracking must never break the actual conversation
 
 
 # ──────────────────────────────────────────────────────────────────────────
@@ -313,6 +367,7 @@ def finalize_booking(memory: dict, bot, db, sender: str):
         customer_name=memory.get("patient_name") or "",
     )
     save_patient_profile(memory, bot, db, sender)
+    save_lead_snapshot(memory, bot, db, sender, status="booked")
     return appt
 
 

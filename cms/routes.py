@@ -7,6 +7,7 @@ from db import (
     add_knowledge_document, get_knowledge_documents,
     create_doctor, get_doctors_by_bot, get_doctor_by_id, update_doctor, delete_doctor,
     create_procedure, get_procedures_by_bot, get_procedure_by_id, update_procedure, delete_procedure,
+    get_leads_by_bot,
 )
 from auth import verify_password, get_password_hash, create_access_token, decode_token
 from pydantic import BaseModel
@@ -237,7 +238,8 @@ def _procedure_to_dict(p) -> dict:
     return {
         "id": p.id, "bot_id": p.bot_id, "department": p.department, "name": p.name,
         "sessions_required": p.sessions_required, "fee_per_session": p.fee_per_session,
-        "description": p.description, "upsell_with": json.loads(p.upsell_with_json or "[]"),
+        "package_tier": p.package_tier, "description": p.description,
+        "upsell_with": json.loads(p.upsell_with_json or "[]"),
         "active": p.active, "created_at": p.created_at,
     }
 
@@ -264,8 +266,9 @@ def _resync_clinic_profile(bot_id: int, db: Session) -> None:
     for p in procedures:
         upsells = json.loads(p.upsell_with_json or "[]")
         upsell_text = f" Often combined with: {', '.join(upsells)}." if upsells else ""
+        tier_text = f" Package tier: {p.package_tier}." if p.package_tier else ""
         lines.append(
-            f"Procedure: {p.name} ({p.department.title()} department). {p.description or ''} "
+            f"Procedure: {p.name} ({p.department.title()} department).{tier_text} {p.description or ''} "
             f"Requires {p.sessions_required} session(s) at ${p.fee_per_session:.0f} per session "
             f"(total ${p.fee_per_session * p.sessions_required:.0f}).{upsell_text}"
         )
@@ -355,6 +358,7 @@ class ProcedureCreate(BaseModel):
     name: str
     sessions_required: int = 1
     fee_per_session: float = 0.0
+    package_tier: str = ""    # e.g. "6 Sessions" — for multi-tier packages of the same treatment
     description: str = ""
     upsell_with: List[str] = []
 
@@ -364,6 +368,7 @@ class ProcedureUpdate(BaseModel):
     name: Optional[str] = None
     sessions_required: Optional[int] = None
     fee_per_session: Optional[float] = None
+    package_tier: Optional[str] = None
     description: Optional[str] = None
     upsell_with: Optional[List[str]] = None
     active: Optional[bool] = None
@@ -386,6 +391,7 @@ def add_procedure(
         db, bot_id=bot_id, department=data.department, name=data.name,
         sessions_required=data.sessions_required, fee_per_session=data.fee_per_session,
         description=data.description, upsell_with=data.upsell_with,
+        package_tier=data.package_tier,
     )
     _resync_clinic_profile(bot_id, db)
     return _procedure_to_dict(proc)
@@ -432,6 +438,28 @@ def remove_procedure(
     delete_procedure(db, procedure)
     _resync_clinic_profile(bot_id, db)
     return {"message": f"Procedure #{procedure_id} removed"}
+
+
+# ============================================================
+# Leads (CRM sales follow-up list)
+# ============================================================
+
+@router.get("/bots/{bot_id}/leads", summary="List captured leads for a bot (optionally filter by status)")
+def list_leads(
+    bot_id: int,
+    status: Optional[str] = None,
+    db: Session = Depends(get_db),
+    current_admin: User = Depends(get_current_admin),
+):
+    leads = get_leads_by_bot(db, bot_id, status=status)
+    return [{
+        "id": l.id, "phone": l.phone, "goal": l.goal, "concern": l.concern,
+        "secondary_concern": l.secondary_concern, "timeline": l.timeline,
+        "treatment_interest": l.treatment_interest, "budget_level": l.budget_level,
+        "lead_quality": l.lead_quality, "buying_intention": l.buying_intention,
+        "status": l.status, "estimated_value": l.estimated_value,
+        "created_at": l.created_at, "updated_at": l.updated_at,
+    } for l in leads]
 
 
 # ============================================================

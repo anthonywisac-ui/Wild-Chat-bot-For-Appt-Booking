@@ -66,6 +66,12 @@ Extract any entities mentioned (in THIS message or implied by context) — only 
 - pregnancy_status (if relevant and mentioned, e.g. "pregnant", "not pregnant", "breastfeeding")
 - current_medications (if mentioned, including "none")
 - previous_treatments (any prior aesthetic/dental treatments mentioned)
+- goal (their underlying motivation, e.g. "Bridal Glow", "Hair Regrowth", "Event Preparation" — infer from context, not just literal words)
+- secondary_concern (a second concern mentioned alongside the main one, if any)
+- timeline (any deadline/event mentioned, e.g. "2 months", "before Eid", "next week")
+- budget_level (only if they hint at budget sensitivity or generosity — "low", "medium", or "high"; omit if unclear)
+- lead_quality (your read of how ready/serious this lead is to book — "low", "medium", or "high", based on specificity and urgency of their message)
+- buying_intention (a short phrase capturing their readiness, e.g. "actively comparing clinics", "just researching", "ready to book this week")
 
 Then list missing_information needed to complete their request (only relevant ones, from: treatment, department, doctor_preference, date, time, patient_name, age, gender, allergies, medical_conditions, pregnancy_status, current_medications) — base this on what's STILL unknown after combining with what we already know above, not just this message alone. Only ask for medical screening fields when the intent is appointment_booking AND they aren't already known.
 

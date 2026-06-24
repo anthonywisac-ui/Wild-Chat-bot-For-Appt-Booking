@@ -41,6 +41,14 @@ _DEFAULT_MEMORY = {
     "current_medications": None,
     "previous_treatments": None,
     "profile_loaded": False,       # whether we've already pulled PatientProfile into memory this conversation
+    # Lead qualification / sales CRM signals — captured even before any booking happens.
+    "goal": None,                  # e.g. "Bridal Glow", "Hair Regrowth"
+    "secondary_concern": None,
+    "timeline": None,              # e.g. "2 months", "before Eid"
+    "budget_level": None,          # "low" | "medium" | "high"
+    "lead_quality": None,          # "low" | "medium" | "high"
+    "buying_intention": None,      # short free-text note from the AI's read of the conversation
+    "upsell_offered": False,       # whether we've already shown the upsell offer for this booking
 }
 
 
@@ -75,6 +83,12 @@ def merge_entities(memory: dict, entities: dict) -> dict:
         "pregnancy_status": "pregnancy_status",
         "current_medications": "current_medications",
         "previous_treatments": "previous_treatments",
+        "goal": "goal",
+        "secondary_concern": "secondary_concern",
+        "timeline": "timeline",
+        "budget_level": "budget_level",
+        "lead_quality": "lead_quality",
+        "buying_intention": "buying_intention",
     }
     for entity_key, memory_key in field_map.items():
         value = entities.get(entity_key)
@@ -107,6 +121,7 @@ def reset_booking_fields(memory: dict) -> dict:
         "fee_estimate", "appointment_id", "pending_question",
     ):
         memory[key] = None
+    memory["upsell_offered"] = False
     return memory
 
 
@@ -140,6 +155,12 @@ def known_facts_summary(memory: dict) -> str:
         parts.append(f"Pregnancy status: {memory['pregnancy_status']}")
     if memory.get("current_medications"):
         parts.append(f"Current medications: {memory['current_medications']}")
+    if memory.get("goal"):
+        parts.append(f"Patient's goal: {memory['goal']}")
+    if memory.get("secondary_concern"):
+        parts.append(f"Secondary concern: {memory['secondary_concern']}")
+    if memory.get("timeline"):
+        parts.append(f"Timeline/event date: {memory['timeline']}")
     if memory.get("pending_question"):
         parts.append(f"We just asked the patient: {memory['pending_question']}")
     return "\n".join(parts) if parts else "Nothing known yet — this is a fresh conversation."

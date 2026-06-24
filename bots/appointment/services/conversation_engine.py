@@ -42,9 +42,14 @@ _CANCEL_BTN_RE = re.compile(r"^CANCEL_(\d+)$")
 _RESCHED_BTN_RE = re.compile(r"^RESCHED_(\d+)$")
 _PROC_BTN_RE = re.compile(r"^PROC_(\d+)$")
 _DOC_BTN_RE = re.compile(r"^DOC_(\d+)$")
+_UPSELL_ADD_RE = re.compile(r"^UPSELL_ADD_(\d+)$")
+UPSELL_SKIP_ID = "UPSELL_SKIP"
 
 BOOKING_CONFIRM_ID = "BOOKING_CONFIRM"
 BOOKING_CHANGE_ID = "BOOKING_CHANGE"
+QUICK_CONSULT_ID = "QUICK_CONSULT"
+QUICK_ENQUIRY_ID = "QUICK_ENQUIRY"
+QUICK_BOOK_ID = "QUICK_BOOK"
 
 
 async def _send(sender, text, bot):
@@ -96,10 +101,14 @@ async def _handle_booking_intent(sender, memory: dict, bot, db) -> str | None:
     validation = await appointment_service.resolve_and_validate(memory, bot, db)
 
     if validation["procedure_options"]:
-        rows = [{
-            "id": f"PROC_{p.id}", "title": p.name[:24],
-            "description": f"${p.fee_per_session:.0f}/session" + (f" x{p.sessions_required}" if p.sessions_required > 1 else ""),
-        } for p in validation["procedure_options"][:10]]
+        rows = []
+        for p in validation["procedure_options"][:10]:
+            tier = f" • {p.package_tier}" if p.package_tier else ""
+            sessions = f" x{p.sessions_required}" if p.sessions_required > 1 else ""
+            rows.append({
+                "id": f"PROC_{p.id}", "title": (f"{p.name} ({p.package_tier})" if p.package_tier else p.name)[:24],
+                "description": f"${p.fee_per_session:.0f}/session{sessions}{tier}",
+            })
         await send_interactive_list(
             sender, "Recommended Treatments", "Which treatment are you interested in?",
             "View Treatments", [{"title": "Treatments", "rows": rows}], bot,
@@ -118,6 +127,21 @@ async def _handle_booking_intent(sender, memory: dict, bot, db) -> str | None:
         )
         memory["pending_question"] = "awaiting_doctor_choice"
         return None
+
+    # ── Natural, one-time upsell offer once the treatment is locked in ─────
+    if memory.get("procedure_id") and not memory.get("upsell_offered"):
+        memory["upsell_offered"] = True
+        addons = appointment_service.get_upsell_candidates(memory, bot, db)
+        if addons:
+            buttons = [{"id": f"UPSELL_ADD_{p.id}", "title": f"+ {p.name[:18]}"} for p in addons]
+            buttons.append({"id": "UPSELL_SKIP", "title": "No thanks"})
+            lines = "\n".join(f"• {p.name} — ${p.fee_per_session * p.sessions_required:.0f}" for p in addons)
+            await send_interactive_buttons(
+                sender, f"💡 Many clients combine this with:\n{lines}\n\nWould you like to add one?",
+                buttons, bot,
+            )
+            memory["pending_question"] = "awaiting_upsell_choice"
+            return None
 
     if validation["blocking_error"]:
         directive = (
@@ -171,6 +195,29 @@ async def handle_turn(sender: str, text: str, bot, db) -> None:
     memory = appointment_service.load_patient_profile(memory, bot, db, sender)
     memory_store.append_history(memory, "user", text)
     text_stripped = text.strip()
+
+    # ── Welcome-screen quick actions — guidance only, never a forced menu ──
+    if text_stripped == QUICK_CONSULT_ID:
+        reply = "I'd love to understand your concern and suggest the best options. What's bothering you, or what would you like to improve?"
+        memory_store.append_history(memory, "assistant", reply)
+        memory_store.save_memory(db, bot.id, sender, memory)
+        await _send(sender, reply, bot)
+        return
+
+    if text_stripped == QUICK_ENQUIRY_ID:
+        reply = "Sure! Which treatment or concern would you like to know more about (e.g. pricing, sessions, what's involved)?"
+        memory_store.append_history(memory, "assistant", reply)
+        memory_store.save_memory(db, bot.id, sender, memory)
+        await _send(sender, reply, bot)
+        return
+
+    if text_stripped == QUICK_BOOK_ID:
+        reply = await _handle_booking_intent(sender, memory, bot, db)
+        memory_store.append_history(memory, "assistant", reply or "")
+        memory_store.save_memory(db, bot.id, sender, memory)
+        if reply:
+            await _send(sender, reply, bot)
+        return
 
     # ── Button taps are handled deterministically, never re-classified ─────
     cancel_match = _CANCEL_BTN_RE.match(text_stripped)
@@ -236,6 +283,23 @@ async def handle_turn(sender: str, text: str, bot, db) -> None:
             await _send(sender, reply, bot)
         return
 
+    upsell_add_match = _UPSELL_ADD_RE.match(text_stripped)
+    if memory.get("pending_question") == "awaiting_upsell_choice" and (upsell_add_match or text_stripped == UPSELL_SKIP_ID):
+        if upsell_add_match:
+            from db import get_procedure_by_id
+            addon = get_procedure_by_id(db, bot.id, int(upsell_add_match.group(1)))
+            if addon:
+                addon_fee = addon.fee_per_session * addon.sessions_required
+                memory["fee_estimate"] = (memory.get("fee_estimate") or 0.0) + addon_fee
+                memory["treatment"] = f"{memory.get('treatment') or 'Treatment'} + {addon.name}"
+        memory["pending_question"] = None
+        reply = await _handle_booking_intent(sender, memory, bot, db)
+        memory_store.append_history(memory, "assistant", reply or "")
+        memory_store.save_memory(db, bot.id, sender, memory)
+        if reply:
+            await _send(sender, reply, bot)
+        return
+
     # ── Mid-reschedule: this message should contain the new date/time ──────
     if memory.get("pending_question") == "awaiting_reschedule_datetime" and memory.get("appointment_id"):
         appt = appointment_service.find_appointment(bot, db, sender, memory["appointment_id"])
@@ -290,13 +354,25 @@ async def handle_turn(sender: str, text: str, bot, db) -> None:
     intent = understanding["intent"]
     memory = memory_store.merge_entities(memory, understanding.get("entities", {}))
     memory["last_intent"] = intent
+    appointment_service.save_lead_snapshot(memory, bot, db, sender)
 
     reply: str | None = None
 
     if intent == "greeting":
-        reply = await response_composer.compose(
-            "Greet the patient warmly and ask how you can help them today.", memory, bot, db,
+        lead_in = await response_composer.compose(
+            "Greet the patient warmly as a premium aesthetic/dental clinic receptionist. Keep it to one short, welcoming sentence — the next message will show their options.",
+            memory, bot, db,
         )
+        await send_interactive_buttons(
+            sender, lead_in,
+            [
+                {"id": QUICK_CONSULT_ID, "title": "Consult with AI ✨"},
+                {"id": QUICK_ENQUIRY_ID, "title": "Treatment Enquiry 💬"},
+                {"id": QUICK_BOOK_ID, "title": "Book Appointment 📅"},
+            ],
+            bot,
+        )
+        reply = None
 
     elif intent == "appointment_booking":
         reply = await _handle_booking_intent(sender, memory, bot, db)

@@ -334,6 +334,7 @@ class Procedure(Base):
     sessions_required = Column(Integer, default=1)
     fee_per_session = Column(Float, default=0.0)
     description = Column(Text, default="")
+    package_tier = Column(String, default="")  # e.g. "6 Sessions" / "8 Sessions" — for multi-tier packages
     upsell_with_json = Column(Text, default="[]")  # list of other procedure names in same department
     active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.utcnow)
@@ -350,6 +351,27 @@ class LabReport(Base):
     doctor_recommended_id = Column(Integer, ForeignKey("doctors.id", ondelete="SET NULL"), nullable=True)
     ai_summary = Column(Text, default="")
     created_at = Column(DateTime, default=datetime.utcnow)
+
+class Lead(Base):
+    """CRM lead-qualification snapshot per (bot, phone) — captures sales-relevant
+    signals from the conversation (goal, timeline, budget, intent) even before
+    any appointment is booked, so the clinic's sales team has a follow-up list."""
+    __tablename__ = "leads"
+    id = Column(Integer, primary_key=True, index=True)
+    bot_id = Column(Integer, ForeignKey("whatsapp_bots.id", ondelete="CASCADE"), nullable=False, index=True)
+    phone = Column(String, index=True, nullable=False)
+    goal = Column(String, default="")              # e.g. "Bridal Glow", "Hair Regrowth"
+    concern = Column(String, default="")
+    secondary_concern = Column(String, default="")
+    timeline = Column(String, default="")           # e.g. "2 months", "before Eid"
+    treatment_interest = Column(String, default="")
+    budget_level = Column(String, default="")        # "low" | "medium" | "high" | ""
+    lead_quality = Column(String, default="")        # "low" | "medium" | "high" | ""
+    buying_intention = Column(Text, default="")      # short free-text note
+    status = Column(String, default="new", index=True)  # new | qualified | booked | lost
+    estimated_value = Column(Float, default=0.0)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 class PatientProfile(Base):
     """CRM-style persistent record per (bot, phone) — survives across appointments so a
@@ -589,9 +611,10 @@ def get_enabled_departments_for_bot(db: Session, bot_id: int) -> list:
 
 def create_procedure(db: Session, bot_id: int, department: str, name: str,
                       sessions_required: int = 1, fee_per_session: float = 0.0,
-                      description: str = "", upsell_with: list = None) -> "Procedure":
+                      description: str = "", upsell_with: list = None,
+                      package_tier: str = "") -> "Procedure":
     proc = Procedure(
-        bot_id=bot_id, department=department, name=name,
+        bot_id=bot_id, department=department, name=name, package_tier=package_tier,
         sessions_required=sessions_required, fee_per_session=fee_per_session,
         description=description, upsell_with_json=json.dumps(upsell_with or []),
     )
@@ -616,7 +639,7 @@ def get_procedure_by_id(db: Session, bot_id: int, procedure_id: int):
     return db.query(Procedure).filter(Procedure.id == procedure_id, Procedure.bot_id == bot_id).first()
 
 def update_procedure(db: Session, procedure: "Procedure", data: dict) -> "Procedure":
-    for key in ("department", "name", "sessions_required", "fee_per_session", "description", "active"):
+    for key in ("department", "name", "sessions_required", "fee_per_session", "description", "active", "package_tier"):
         if key in data:
             setattr(procedure, key, data[key])
     if "upsell_with" in data:
@@ -643,6 +666,35 @@ def get_doctor_appointments_on_date(db: Session, bot_id: int, doctor_id: int, ap
         )
         .all()
     )
+
+# ========== Lead CRUD ==========
+
+def get_lead(db: Session, bot_id: int, phone: str) -> Optional["Lead"]:
+    return db.query(Lead).filter(Lead.bot_id == bot_id, Lead.phone == phone).first()
+
+def upsert_lead(db: Session, bot_id: int, phone: str, data: dict) -> "Lead":
+    lead = get_lead(db, bot_id, phone)
+    if not lead:
+        lead = Lead(bot_id=bot_id, phone=phone)
+        db.add(lead)
+    for key in (
+        "goal", "concern", "secondary_concern", "timeline", "treatment_interest",
+        "budget_level", "lead_quality", "buying_intention", "status",
+    ):
+        value = data.get(key)
+        if value:  # never overwrite a known fact with blank/None
+            setattr(lead, key, value)
+    if "estimated_value" in data and data["estimated_value"]:
+        lead.estimated_value = data["estimated_value"]
+    db.commit()
+    db.refresh(lead)
+    return lead
+
+def get_leads_by_bot(db: Session, bot_id: int, status: str = None):
+    q = db.query(Lead).filter(Lead.bot_id == bot_id)
+    if status:
+        q = q.filter(Lead.status == status)
+    return q.order_by(Lead.updated_at.desc()).all()
 
 # ========== Patient Profile CRUD ==========
 
@@ -791,6 +843,7 @@ def migrate_db():
                     "procedure_id INTEGER",
                     "consultation_fee FLOAT DEFAULT 0.0",
                 ]),
+                ("procedures", ["package_tier TEXT DEFAULT ''"]),
             ]:
                 existing_cols = {c["name"] for c in inspector.get_columns(table_name)} if table_name in inspector.get_table_names() else set()
                 for col_def in columns:
