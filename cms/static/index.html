@@ -399,33 +399,35 @@
                                     <label class="block text-[10px] font-bold text-slate-500 mb-1 group-focus-within:text-emerald-400 transition-colors">SYSTEM PROMPT (AI PERSONALITY)</label>
                                     <textarea id="botSystemPrompt" class="input-field py-2 text-xs h-24 resize-none" placeholder="Explain how the bot should behave..."></textarea>
                                 </div>
-                                <div class="group">
-                                    <label class="block text-[10px] font-bold text-slate-500 mb-1 group-focus-within:text-emerald-400 transition-colors">TAX / VAT (%)</label>
-                                    <input type="number" id="ruleTax" class="input-field py-2 text-sm" placeholder="e.g. 5">
-                                </div>
-                                <div class="group">
-                                    <label class="block text-[10px] font-bold text-slate-500 mb-1 group-focus-within:text-emerald-400 transition-colors">DELIVERY FEE ($)</label>
-                                    <input type="number" id="ruleDelivery" class="input-field py-2 text-sm" placeholder="e.g. 2.50">
-                                </div>
-                                <div class="group">
-                                    <label class="block text-[10px] font-bold text-slate-500 mb-1 group-focus-within:text-emerald-400 transition-colors">MIN. ORDER ($)</label>
-                                    <input type="number" id="ruleMinOrder" class="input-field py-2 text-sm" placeholder="e.g. 15.00">
-                                </div>
-                                <div class="pt-2 border-t border-slate-700">
-                                    <div class="text-[10px] font-bold text-slate-500 uppercase mb-2">Upsell Rules</div>
-                                    <div class="space-y-2">
-                                        <label class="flex items-center gap-2 cursor-pointer">
-                                            <input type="checkbox" id="upsellBurgerCombo" class="w-4 h-4 rounded accent-emerald-500">
-                                            <span class="text-xs text-slate-300">Burger → Combo Deal</span>
-                                        </label>
-                                        <label class="flex items-center gap-2 cursor-pointer">
-                                            <input type="checkbox" id="upsellPizzaWings" class="w-4 h-4 rounded accent-emerald-500">
-                                            <span class="text-xs text-slate-300">Pizza → Wings Side</span>
-                                        </label>
-                                        <label class="flex items-center gap-2 cursor-pointer">
-                                            <input type="checkbox" id="upsellDesserts" class="w-4 h-4 rounded accent-emerald-500">
-                                            <span class="text-xs text-slate-300">Checkout → Dessert</span>
-                                        </label>
+                                <div id="restaurantPolicyFields" class="space-y-4">
+                                    <div class="group">
+                                        <label class="block text-[10px] font-bold text-slate-500 mb-1 group-focus-within:text-emerald-400 transition-colors">TAX / VAT (%)</label>
+                                        <input type="number" id="ruleTax" class="input-field py-2 text-sm" placeholder="e.g. 5">
+                                    </div>
+                                    <div class="group">
+                                        <label class="block text-[10px] font-bold text-slate-500 mb-1 group-focus-within:text-emerald-400 transition-colors">DELIVERY FEE ($)</label>
+                                        <input type="number" id="ruleDelivery" class="input-field py-2 text-sm" placeholder="e.g. 2.50">
+                                    </div>
+                                    <div class="group">
+                                        <label class="block text-[10px] font-bold text-slate-500 mb-1 group-focus-within:text-emerald-400 transition-colors">MIN. ORDER ($)</label>
+                                        <input type="number" id="ruleMinOrder" class="input-field py-2 text-sm" placeholder="e.g. 15.00">
+                                    </div>
+                                    <div class="pt-2 border-t border-slate-700">
+                                        <div class="text-[10px] font-bold text-slate-500 uppercase mb-2">Upsell Rules</div>
+                                        <div class="space-y-2">
+                                            <label class="flex items-center gap-2 cursor-pointer">
+                                                <input type="checkbox" id="upsellBurgerCombo" class="w-4 h-4 rounded accent-emerald-500">
+                                                <span class="text-xs text-slate-300">Burger → Combo Deal</span>
+                                            </label>
+                                            <label class="flex items-center gap-2 cursor-pointer">
+                                                <input type="checkbox" id="upsellPizzaWings" class="w-4 h-4 rounded accent-emerald-500">
+                                                <span class="text-xs text-slate-300">Pizza → Wings Side</span>
+                                            </label>
+                                            <label class="flex items-center gap-2 cursor-pointer">
+                                                <input type="checkbox" id="upsellDesserts" class="w-4 h-4 rounded accent-emerald-500">
+                                                <span class="text-xs text-slate-300">Checkout → Dessert</span>
+                                            </label>
+                                        </div>
                                     </div>
                                 </div>
                             </div>
@@ -491,17 +493,23 @@
                                 <div class="flex justify-between items-center mb-6 border-b border-slate-700 pb-6">
                                     <div>
                                         <h2 class="text-2xl font-bold gradient-text" id="nicheEditorTitle">Agent Intelligence</h2>
-                                        <p class="text-slate-400 text-sm mt-1">Define the properties, services, or facts this agent knows.</p>
+                                        <p class="text-slate-400 text-sm mt-1">Add facts, FAQs, or business info in plain text — the bot uses this to answer customer questions.</p>
                                     </div>
                                 </div>
                                 <div class="bg-slate-900/50 p-6 rounded-xl border border-slate-700">
-                                    <div class="flex justify-between items-center mb-4">
-                                        <label class="block text-xs font-bold text-slate-500 uppercase">Knowledge Base (JSON Format)</label>
-                                        <button onclick="formatNicheJson()" class="text-[10px] text-emerald-400 hover:underline">Format JSON</button>
+                                    <label class="block text-xs font-bold text-slate-500 uppercase mb-2">Add to Knowledge Base (Plain Text)</label>
+                                    <textarea id="kbPlainText" class="w-full bg-slate-950 border border-slate-800 rounded-xl p-4 text-sm text-slate-200 h-48 focus:border-emerald-500 outline-none transition-all" placeholder="e.g. We are open Mon-Sat 10am-8pm. We accept cash and card. Located at 123 Main St. Free consultation for new patients..."></textarea>
+                                    <div class="mt-3 flex items-center justify-between">
+                                        <span class="text-[10px] text-slate-500"><i class="fas fa-info-circle"></i> Saved immediately — no need to click Sync & Deploy.</span>
+                                        <button onclick="addKnowledgeText()" class="bg-emerald-600 hover:bg-emerald-700 px-4 py-2 rounded-lg text-xs font-bold transition-all">
+                                            <i class="fas fa-plus"></i> Add to Knowledge Base
+                                        </button>
                                     </div>
-                                    <textarea id="nicheConfigJson" class="w-full bg-slate-950 border border-slate-800 rounded-xl p-4 text-xs font-mono text-emerald-500 h-[400px] focus:border-emerald-500 outline-none transition-all" placeholder='{ "properties": [...], "services": [...] }'></textarea>
-                                    <div class="mt-4 flex items-center gap-2 text-[10px] text-slate-500">
-                                        <i class="fas fa-info-circle"></i> This data will be used by the bot to answer customer questions.
+                                </div>
+                                <div class="bg-slate-900/50 p-6 rounded-xl border border-slate-700 mt-4">
+                                    <label class="block text-xs font-bold text-slate-500 uppercase mb-3">Saved Knowledge Documents</label>
+                                    <div id="kbDocList" class="space-y-2 text-sm text-slate-300">
+                                        <p class="text-slate-500 text-xs">Loading…</p>
                                     </div>
                                 </div>
                             </div>
@@ -1012,6 +1020,7 @@
             if (bot.bot_type === 'restaurant') {
                 document.getElementById('restaurantBuilderNav').classList.remove('hidden');
                 document.getElementById('nicheBuilderNav').classList.add('hidden');
+                document.getElementById('restaurantPolicyFields').classList.remove('hidden');
                 document.getElementById('categoryHeader').classList.add('hidden');
                 document.getElementById('nicheEditor').classList.add('hidden');
                 // Auto-import effective menu when no categories saved yet
@@ -1023,22 +1032,22 @@
                         }
                     } catch(e) { console.warn('effective-menu fetch failed:', e.message); }
                 }
+                document.getElementById('ruleTax').value = bot.tax_rate || 0;
+                document.getElementById('ruleDelivery').value = bot.delivery_fee || 0;
+                document.getElementById('ruleMinOrder').value = currentConfig.rules.min_order || 0;
+                const ur = currentConfig.upsell_rules || {};
+                document.getElementById('upsellBurgerCombo').checked = ur.burger_combo !== false;
+                document.getElementById('upsellPizzaWings').checked = ur.pizza_wings !== false;
+                document.getElementById('upsellDesserts').checked = ur.desserts !== false;
             } else {
                 document.getElementById('restaurantBuilderNav').classList.add('hidden');
                 document.getElementById('nicheBuilderNav').classList.remove('hidden');
+                document.getElementById('restaurantPolicyFields').classList.add('hidden');
                 document.getElementById('categoryHeader').classList.add('hidden');
                 document.getElementById('nicheEditor').classList.add('hidden');
-                document.getElementById('nicheConfigJson').value = JSON.stringify(currentConfig, null, 2);
             }
 
-            document.getElementById('ruleTax').value = bot.tax_rate || 0;
-            document.getElementById('ruleDelivery').value = bot.delivery_fee || 0;
-            document.getElementById('ruleMinOrder').value = currentConfig.rules.min_order || 0;
             document.getElementById('botSystemPrompt').value = bot.system_prompt || '';
-            const ur = currentConfig.upsell_rules || {};
-            document.getElementById('upsellBurgerCombo').checked = ur.burger_combo !== false;
-            document.getElementById('upsellPizzaWings').checked = ur.pizza_wings !== false;
-            document.getElementById('upsellDesserts').checked = ur.desserts !== false;
 
             // Auto-populate deal_rules for restaurant bots if missing
             if (bot.bot_type === 'restaurant' && !currentConfig.deal_rules) {
@@ -1081,13 +1090,40 @@
         document.getElementById('noCategorySelected').classList.add('hidden');
         document.getElementById('nicheEditor').classList.remove('hidden');
         document.getElementById('nicheEditorTitle').innerText = 'Data Source: ' + document.getElementById('builderBotSelect').options[document.getElementById('builderBotSelect').selectedIndex].text;
+        loadKnowledgeDocsList(currentBotId);
     }
 
-    function formatNicheJson() {
+    async function addKnowledgeText() {
+        const text = document.getElementById('kbPlainText').value.trim();
+        if (!text) { alert('Please type something to add.'); return; }
+        const title = text.split('\n')[0].slice(0, 60) || 'document';
         try {
-            const el = document.getElementById('nicheConfigJson');
-            el.value = JSON.stringify(JSON.parse(el.value), null, 2);
-        } catch(e) { alert('Invalid JSON: ' + e.message); }
+            await apiCall(`/cms/bots/${currentBotId}/knowledge/text`, 'POST', { title, text });
+            document.getElementById('kbPlainText').value = '';
+            alert('✅ Added to knowledge base!');
+            loadKnowledgeDocsList(currentBotId);
+        } catch(e) { alert('Error: ' + e.message); }
+    }
+
+    async function loadKnowledgeDocsList(botId) {
+        const el = document.getElementById('kbDocList');
+        if (!botId) { el.innerHTML = '<p class="text-slate-500 text-xs">Select a bot first.</p>'; return; }
+        el.innerHTML = '<p class="text-slate-500 text-xs">Loading…</p>';
+        try {
+            const docs = await apiCall(`/cms/bots/${botId}/knowledge`, 'GET');
+            if (!docs.length) {
+                el.innerHTML = '<p class="text-slate-500 text-xs">No documents added yet.</p>';
+                return;
+            }
+            el.innerHTML = docs.map(d => `
+                <div class="flex justify-between items-center bg-slate-800/50 px-3 py-2 rounded-lg">
+                    <span class="truncate">${d.title} <span class="text-slate-500 text-xs">(${d.chunks} chunk${d.chunks===1?'':'s'})</span></span>
+                    <span class="text-[10px] text-slate-500">${d.source_type}</span>
+                </div>
+            `).join('');
+        } catch(e) {
+            el.innerHTML = `<p class="text-rose-400 text-xs">Error loading: ${e.message}</p>`;
+        }
     }
 
     function renderCategories() {
@@ -1391,19 +1427,26 @@
         btn.disabled = true;
         span.innerText = "Deploying...";
         
-        const tax_rate = parseFloat(document.getElementById('ruleTax').value || 0);
-        const delivery_fee = parseFloat(document.getElementById('ruleDelivery').value || 0);
         const system_prompt = document.getElementById('botSystemPrompt').value;
 
         if (currentBotType !== 'restaurant') {
+            // Non-restaurant bots (e.g. appointment/clinic): only the system prompt is editable here.
+            // Doctors/procedures are managed via their own CMS endpoints; FAQs via the Knowledge Base panel.
             try {
-                currentConfig = JSON.parse(document.getElementById('nicheConfigJson').value);
+                await apiCall(`/api/crm/bots/whatsapp/${botId}`, 'PUT', { system_prompt: system_prompt });
+                isDirty = false;
+                alert('🚀 System prompt saved!');
             } catch(e) {
-                alert('Invalid JSON in Knowledge Base. Please fix before saving.');
-                btn.disabled = false; span.innerText = originalText;
-                return;
+                alert('Error saving config: ' + e.message);
+            } finally {
+                span.innerText = originalText;
+                btn.disabled = false;
             }
+            return;
         }
+
+        const tax_rate = parseFloat(document.getElementById('ruleTax').value || 0);
+        const delivery_fee = parseFloat(document.getElementById('ruleDelivery').value || 0);
 
         currentConfig.rules = {
             tax: tax_rate,
@@ -1439,7 +1482,7 @@
             isDirty = false;
             alert('🚀 Changes Synced! Your bot is now using the updated menu and logic.');
         } catch(e) {
-            alert('Error saving config: ' + e.message); 
+            alert('Error saving config: ' + e.message);
         } finally { 
             span.innerText = originalText; 
             btn.disabled = false; 
