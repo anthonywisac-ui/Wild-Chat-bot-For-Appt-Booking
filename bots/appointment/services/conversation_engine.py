@@ -11,6 +11,10 @@
 # This replaces the old fixed-stage state machine. There is no "current step"
 # the patient must follow — only a set of facts we're gradually filling in,
 # and the engine decides what's still needed after every single message.
+#
+# Disambiguation (which appointment to cancel/reschedule, confirm/change a
+# booking) always uses real WhatsApp buttons/lists, never "reply with the
+# number" — button taps are handled deterministically, bypassing the LLM.
 
 from __future__ import annotations
 
@@ -18,7 +22,10 @@ import logging
 import re
 
 from db import get_doctors_by_bot, get_procedures_by_bot, get_doctor_by_id, log_bot_event
-from whatsapp_handlers import send_text_message_v2, send_document_v2
+from whatsapp_handlers import (
+    send_text_message_v2, send_document_v2,
+    send_interactive_list, send_interactive_buttons,
+)
 from utils_pdf import generate_appointment_pdf
 
 from bots.appointment.services import conversation_memory as memory_store
@@ -31,10 +38,37 @@ logger = logging.getLogger(__name__)
 
 _AFFIRMATIVE_RE = re.compile(r"^(yes|yep|yeah|confirm|sure|ok(ay)?|sounds good|go ahead|book it)\b", re.IGNORECASE)
 _NEGATIVE_RE = re.compile(r"^(no|nope|not yet|cancel|wait|hold on|change)\b", re.IGNORECASE)
+_CANCEL_BTN_RE = re.compile(r"^CANCEL_(\d+)$")
+_RESCHED_BTN_RE = re.compile(r"^RESCHED_(\d+)$")
+
+BOOKING_CONFIRM_ID = "BOOKING_CONFIRM"
+BOOKING_CHANGE_ID = "BOOKING_CHANGE"
 
 
 async def _send(sender, text, bot):
     await send_text_message_v2(sender, text, bot)
+
+
+def _appointment_label(a, db, bot) -> str:
+    doc = get_doctor_by_id(db, bot.id, a.doctor_id) if a.doctor_id else None
+    doc_part = f" w/ Dr. {doc.name}" if doc else ""
+    return f"{a.service or 'Appointment'}{doc_part}"
+
+
+async def _send_appointment_picker(sender, bot, db, appointments, action: str) -> None:
+    """action: 'cancel' or 'reschedule' — sends a real WhatsApp list, never numbered text."""
+    prefix = "CANCEL_" if action == "cancel" else "RESCHED_"
+    rows = [{
+        "id": f"{prefix}{a.id}",
+        "title": f"#{a.id} {_appointment_label(a, db, bot)}"[:24],
+        "description": f"{a.appointment_date} at {a.appointment_time}",
+    } for a in appointments[:10]]
+
+    await send_interactive_list(
+        sender, "Your Appointments",
+        f"Which appointment would you like to {action}?",
+        "Select Appointment", [{"title": "Appointments", "rows": rows}], bot,
+    )
 
 
 async def _reconnect_to_pending_request(memory: dict, bot, db) -> str | None:
@@ -56,7 +90,7 @@ async def _reconnect_to_pending_request(memory: dict, bot, db) -> str | None:
     return await response_composer.compose(directive, memory, bot, db)
 
 
-async def _handle_booking_intent(sender, memory: dict, bot, db) -> str:
+async def _handle_booking_intent(sender, memory: dict, bot, db) -> str | None:
     validation = await appointment_service.resolve_and_validate(memory, bot, db)
 
     if validation["blocking_error"]:
@@ -73,14 +107,19 @@ async def _handle_booking_intent(sender, memory: dict, bot, db) -> str:
         memory["pending_question"] = directive
         return await response_composer.compose(directive, memory, bot, db)
 
-    # Everything needed is known — show the summary and ask to confirm.
+    # Everything needed is known — show the summary and ask to confirm via real buttons.
     memory["awaiting_confirmation"] = True
     summary = appointment_service.booking_summary_text(memory, bot, db)
     lead_in = await response_composer.compose(
         "Let the patient know you have everything you need and you're about to confirm their booking. Keep it to one short sentence.",
         memory, bot, db,
     )
-    return f"{lead_in}\n\n📝 *{summary}*\n\nShall I confirm this booking?"
+    await send_interactive_buttons(
+        sender, f"{lead_in}\n\n📝 *{summary}*",
+        [{"id": BOOKING_CONFIRM_ID, "title": "✅ Confirm"}, {"id": BOOKING_CHANGE_ID, "title": "✏️ Change something"}],
+        bot,
+    )
+    return None  # already sent directly
 
 
 async def _finalize_booking(sender, memory: dict, bot, db) -> str:
@@ -105,17 +144,76 @@ async def handle_turn(sender: str, text: str, bot, db) -> None:
     memory = memory_store.load_memory(db, bot.id, sender)
     memory = appointment_service.load_patient_profile(memory, bot, db, sender)
     memory_store.append_history(memory, "user", text)
+    text_stripped = text.strip()
 
-    # A pending yes/no confirmation takes priority over re-classifying the message —
-    # "yes" should never get misread as casual chat and dropped.
+    # ── Button taps are handled deterministically, never re-classified ─────
+    cancel_match = _CANCEL_BTN_RE.match(text_stripped)
+    resched_match = _RESCHED_BTN_RE.match(text_stripped)
+
+    if cancel_match:
+        appt = appointment_service.find_appointment(bot, db, sender, int(cancel_match.group(1)))
+        if not appt:
+            reply = "I couldn't find that appointment — it may have already been cancelled. Type *menu* to see options."
+        else:
+            appointment_service.cancel(db, appt)
+            reply = f"❌ Your appointment #{appt.id} on {appt.appointment_date} has been cancelled."
+        memory["pending_question"] = None
+        memory_store.append_history(memory, "assistant", reply)
+        memory_store.save_memory(db, bot.id, sender, memory)
+        await _send(sender, reply, bot)
+        return
+
+    if resched_match:
+        appt = appointment_service.find_appointment(bot, db, sender, int(resched_match.group(1)))
+        if not appt:
+            reply = "I couldn't find that appointment. Type *menu* to see options."
+            memory["pending_question"] = None
+        else:
+            memory["appointment_id"] = appt.id
+            memory["pending_question"] = "awaiting_reschedule_datetime"
+            reply = f"Sure — what new date and time would you like for appointment #{appt.id}?"
+        memory_store.append_history(memory, "assistant", reply)
+        memory_store.save_memory(db, bot.id, sender, memory)
+        await _send(sender, reply, bot)
+        return
+
+    # ── Mid-reschedule: this message should contain the new date/time ──────
+    if memory.get("pending_question") == "awaiting_reschedule_datetime" and memory.get("appointment_id"):
+        appt = appointment_service.find_appointment(bot, db, sender, memory["appointment_id"])
+        if not appt:
+            reply = "Something went wrong finding that appointment. Type *menu* to start again."
+            memory["pending_question"] = None
+            memory["appointment_id"] = None
+        else:
+            doctor = get_doctor_by_id(db, bot.id, appt.doctor_id) if appt.doctor_id else None
+            temp_memory = {"date_text": text_stripped, "time_text": text_stripped, "doctor_id": appt.doctor_id}
+            # Try to split "date and time" naturally — let the AI-assisted parser do the heavy lifting
+            # by attempting the full string against both date and time parsers.
+            error = await appointment_service.normalize_date_time(temp_memory, bot, db)
+            if error or not temp_memory.get("date_iso"):
+                reply = await response_composer.compose(
+                    f"Couldn't quite parse a date and time from that. {error or ''} Ask them to provide both clearly, e.g. 'next Monday at 3pm'.",
+                    memory, bot, db,
+                )
+            else:
+                appointment_service.reschedule(db, appt, temp_memory["date_iso"], temp_memory["time_24h"])
+                reply = f"🔁 Your appointment #{appt.id} has been rescheduled to {temp_memory['date_iso']} at {temp_memory['time_24h']}."
+                memory["pending_question"] = None
+                memory["appointment_id"] = None
+        memory_store.append_history(memory, "assistant", reply)
+        memory_store.save_memory(db, bot.id, sender, memory)
+        await _send(sender, reply, bot)
+        return
+
+    # ── A pending booking confirmation takes priority over re-classifying ──
     if memory.get("awaiting_confirmation"):
-        if _AFFIRMATIVE_RE.match(text.strip()):
+        if text_stripped == BOOKING_CONFIRM_ID or _AFFIRMATIVE_RE.match(text_stripped):
             reply = await _finalize_booking(sender, memory, bot, db)
             memory_store.append_history(memory, "assistant", reply)
             memory_store.save_memory(db, bot.id, sender, memory)
             await _send(sender, reply, bot)
             return
-        if _NEGATIVE_RE.match(text.strip()):
+        if text_stripped == BOOKING_CHANGE_ID or _NEGATIVE_RE.match(text_stripped):
             memory["awaiting_confirmation"] = False
             reply = await response_composer.compose(
                 "The patient wants to change something about their pending booking before confirming. "
@@ -134,7 +232,7 @@ async def handle_turn(sender: str, text: str, bot, db) -> None:
     memory = memory_store.merge_entities(memory, understanding.get("entities", {}))
     memory["last_intent"] = intent
 
-    reply: str
+    reply: str | None = None
 
     if intent == "greeting":
         reply = await response_composer.compose(
@@ -153,9 +251,7 @@ async def handle_turn(sender: str, text: str, bot, db) -> None:
         else:
             lines = []
             for a in appointments:
-                doc = get_doctor_by_id(db, bot.id, a.doctor_id) if a.doctor_id else None
-                doc_line = f" with Dr. {doc.name}" if doc else ""
-                lines.append(f"🔖 #{a.id} — {a.service or 'Appointment'}{doc_line}\n📅 {a.appointment_date} ⏰ {a.appointment_time}")
+                lines.append(f"🔖 #{a.id} — {_appointment_label(a, db, bot)}\n📅 {a.appointment_date} ⏰ {a.appointment_time}")
             reply = "📋 *Your Upcoming Appointments:*\n\n" + "\n\n".join(lines)
 
     elif intent == "appointment_cancel":
@@ -168,9 +264,8 @@ async def handle_turn(sender: str, text: str, bot, db) -> None:
             appointment_service.cancel(db, appointments[0])
             reply = f"❌ Your appointment #{appointments[0].id} on {appointments[0].appointment_date} has been cancelled."
         else:
-            lines = [f"🔖 #{a.id} — {a.service} on {a.appointment_date} {a.appointment_time}" for a in appointments]
-            reply = "Which appointment would you like to cancel? Reply with the number:\n\n" + "\n".join(lines)
-            memory["pending_question"] = "awaiting_cancel_id"
+            await _send_appointment_picker(sender, bot, db, appointments, "cancel")
+            reply = None
 
     elif intent == "appointment_reschedule":
         appointments = appointment_service.list_upcoming(bot, db, sender)
@@ -189,10 +284,13 @@ async def handle_turn(sender: str, text: str, bot, db) -> None:
             else:
                 appointment_service.reschedule(db, appt, temp_memory["date_iso"], temp_memory["time_24h"])
                 reply = f"🔁 Your appointment #{appt.id} has been rescheduled to {temp_memory['date_iso']} at {temp_memory['time_24h']}."
+        elif len(appointments) == 1:
+            memory["appointment_id"] = appointments[0].id
+            memory["pending_question"] = "awaiting_reschedule_datetime"
+            reply = f"What new date and time would you like for appointment #{appointments[0].id}?"
         else:
-            lines = [f"🔖 #{a.id} — {a.service} on {a.appointment_date} {a.appointment_time}" for a in appointments]
-            reply = "Which appointment would you like to reschedule, and what's the new date/time?\n\n" + "\n".join(lines)
-            memory["pending_question"] = "awaiting_reschedule_details"
+            await _send_appointment_picker(sender, bot, db, appointments, "reschedule")
+            reply = None
 
     elif intent in ("treatment_information", "pricing_question", "doctor_information", "clinic_information"):
         answer = await knowledge_service.answer(text, bot, db)
@@ -223,6 +321,7 @@ async def handle_turn(sender: str, text: str, bot, db) -> None:
         if follow_up:
             reply = f"{reply}\n\n{follow_up}"
 
-    memory_store.append_history(memory, "assistant", reply)
+    memory_store.append_history(memory, "assistant", reply or "")
     memory_store.save_memory(db, bot.id, sender, memory)
-    await _send(sender, reply, bot)
+    if reply:
+        await _send(sender, reply, bot)
