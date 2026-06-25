@@ -20,14 +20,14 @@
 INTAKE_QUESTIONS = {
     "skin": [
         {"key": "concern", "question": "What is your main skin concern?", "type": "list", "options": [
-            ("acne", "Acne"), ("scars", "Acne scars"), ("pigmentation", "Pigmentation / Dark spots"),
+            ("acne", "Acne"), ("scars", "Acne scars"), ("pigmentation", "Pigmentation/Dark spots"),
             ("dull", "Dull / Uneven skin"), ("aging", "Fine lines / Aging"), ("other", "Other"),
         ]},
         {"key": "skin_duration", "question": "How long have you had this concern?", "type": "buttons", "options": [
             ("lt3m", "<3 months"), ("3to12m", "3-12 months"), ("gt1y", ">1 year"),
         ]},
         {"key": "skin_type", "question": "What is your skin type?", "type": "buttons", "options": [
-            ("oily", "Oily"), ("dry", "Dry"), ("combo", "Combination/Sensitive"),
+            ("oily", "Oily"), ("dry", "Dry"), ("combo", "Combo/Sensitive"),
         ]},
         {"key": "previous_treatments", "question": "Have you tried any previous skin treatments?", "type": "text_or_skip"},
         {"key": "allergies", "question": "Any skin allergies, active infections, or wounds?", "type": "buttons", "options": [
@@ -93,7 +93,7 @@ INTAKE_QUESTIONS = {
         ]},
         {"key": "previous_treatments", "question": "Have you had fillers or Botox before? If so, when?", "type": "text_or_skip"},
         {"key": "goal", "question": "What result are you looking for?", "type": "buttons", "options": [
-            ("natural", "Natural enhancement"), ("noticeable", "More noticeable change"),
+            ("natural", "Natural enhancement"), ("noticeable", "Noticeable change"),
         ]},
         {"key": "allergies", "question": "Any allergies, including a past reaction to fillers/injections?", "type": "buttons", "options": [
             ("none", "None"), ("yes", "Yes"),

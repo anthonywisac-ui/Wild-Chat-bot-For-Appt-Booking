@@ -192,7 +192,7 @@ async def _send_treatment_browser(sender, bot, db, memory: dict) -> None:
 
     if not department:
         rows = [{
-            "id": f"DEPT_{slug.upper()}", "title": f"{info['emoji']} {info['label']}",
+            "id": f"DEPT_{slug.upper()}", "title": f"{info['emoji']} {info['label']}"[:24],
             "description": info["description"][:72],
         } for slug, info in DEPARTMENTS.items() if slug in enabled]
         await send_interactive_list(
@@ -255,7 +255,7 @@ async def _send_quick_time_picker(sender, bot, memory: dict) -> None:
 
 async def _send_screening_buttons(sender, bot, memory: dict, field: str) -> None:
     options = _SCREEN_OPTIONS[field]
-    buttons = [{"id": f"SCREEN_{field}_{val}", "title": label} for val, label in options]
+    buttons = [{"id": f"SCREEN_{field}_{val}", "title": label[:20]} for val, label in options]
     await send_interactive_buttons(sender, _FIELD_QUESTIONS[field], buttons, bot)
     memory["pending_field"] = field
     memory["pending_question"] = f"awaiting_screen_{field}"
@@ -266,10 +266,10 @@ async def _send_intake_question(sender, bot, memory: dict, q: dict) -> None:
     as buttons, a list, or free text with a Skip option — deterministic, no AI."""
     key = q["key"]
     if q["type"] == "buttons":
-        buttons = [{"id": f"INTAKE_{key}_{val}", "title": label} for val, label in q["options"]]
+        buttons = [{"id": f"INTAKE_{key}_{val}", "title": label[:20]} for val, label in q["options"]]
         await send_interactive_buttons(sender, q["question"], buttons, bot)
     elif q["type"] == "list":
-        rows = [{"id": f"INTAKE_{key}_{val}", "title": label} for val, label in q["options"]]
+        rows = [{"id": f"INTAKE_{key}_{val}", "title": label[:24]} for val, label in q["options"]]
         await send_interactive_list(sender, "Choose one", q["question"], "Select", [{"title": "Options", "rows": rows}], bot)
     else:  # text_or_skip
         await send_interactive_buttons(
@@ -306,7 +306,7 @@ async def _handle_booking_intent(sender, memory: dict, bot, db) -> str | None:
             memory["_doctor_choice_asked"] = True
             await send_interactive_buttons(
                 sender, "Preferred doctor?",
-                [{"id": "DOCTOR_ANY", "title": "Any available doctor"}, {"id": "DOCTOR_SELECT", "title": "Select doctor"}],
+                [{"id": "DOCTOR_ANY", "title": "Any doctor"}, {"id": "DOCTOR_SELECT", "title": "Select doctor"}],
                 bot,
             )
             memory["pending_question"] = "awaiting_doctor_mode_choice"
@@ -384,7 +384,7 @@ async def _handle_booking_intent(sender, memory: dict, bot, db) -> str | None:
             if next_field == "phone_confirm":
                 await send_interactive_buttons(
                     sender, f"Use this WhatsApp number ({sender}) for your booking, or add a different number?",
-                    [{"id": "PHONE_USE", "title": "Use this number"}, {"id": "PHONE_ADD", "title": "Add a different number"}],
+                    [{"id": "PHONE_USE", "title": "Use this number"}, {"id": "PHONE_ADD", "title": "Different number"}],
                     bot,
                 )
                 memory["pending_question"] = "awaiting_phone_confirm"
@@ -413,7 +413,7 @@ async def _handle_booking_intent(sender, memory: dict, bot, db) -> str | None:
         )
     await send_interactive_buttons(
         sender, f"{lead_in}\n\n📝 *{summary}*",
-        [{"id": BOOKING_CONFIRM_ID, "title": "✅ Confirm"}, {"id": BOOKING_CHANGE_ID, "title": "✏️ Change something"}],
+        [{"id": BOOKING_CONFIRM_ID, "title": "✅ Confirm"}, {"id": BOOKING_CHANGE_ID, "title": "✏️ Change"}],
         bot,
     )
     return None  # already sent directly
