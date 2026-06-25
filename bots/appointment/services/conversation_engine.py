@@ -21,7 +21,10 @@ from __future__ import annotations
 import logging
 import re
 
-from db import get_doctors_by_bot, get_procedures_by_bot, get_doctor_by_id, log_bot_event
+from db import (
+    get_doctors_by_bot, get_procedures_by_bot, get_doctor_by_id, get_procedure_by_id,
+    get_procedures_by_department, get_enabled_departments_for_bot, log_bot_event,
+)
 from whatsapp_handlers import (
     send_text_message_v2, send_document_v2,
     send_interactive_list, send_interactive_buttons,
@@ -29,6 +32,7 @@ from whatsapp_handlers import (
 from utils_pdf import generate_appointment_pdf
 
 from ai.intent import looks_like_question
+from bots.appointment.departments import DEPARTMENTS
 
 from bots.appointment.services import conversation_memory as memory_store
 from bots.appointment.services import intent_classifier
@@ -54,8 +58,24 @@ _CANCEL_BTN_RE = re.compile(r"^CANCEL_(\d+)$")
 _RESCHED_BTN_RE = re.compile(r"^RESCHED_(\d+)$")
 _PROC_BTN_RE = re.compile(r"^PROC_(\d+)$")
 _DOC_BTN_RE = re.compile(r"^DOC_(\d+)$")
+_DEPT_BTN_RE = re.compile(r"^DEPT_(\w+)$")
 _UPSELL_ADD_RE = re.compile(r"^UPSELL_ADD_(\d+)$")
 UPSELL_SKIP_ID = "UPSELL_SKIP"
+_ENQ_BOOK_RE = re.compile(r"^ENQ_BOOK_(\d+)$")
+ENQ_BROWSE_ID = "ENQ_BROWSE"
+_QUICKDATE_RE = re.compile(r"^QUICKDATE_(\d{4}-\d{2}-\d{2})$")
+_QUICKTIME_RE = re.compile(r"^QUICKTIME_(.+)$")
+
+# Booking-mode patient-info questions are FIXED text, never AI-composed —
+# "Book Appointment" mode must never drift into open-ended AI consultation.
+_FIELD_QUESTIONS = {
+    "age": "What's your age?",
+    "gender": "What's your gender? (male/female)",
+    "allergies": "Do you have any allergies? (or reply 'none')",
+    "medical_conditions": "Any medical conditions we should know about? (or reply 'none')",
+    "pregnancy_status": "Are you currently pregnant or breastfeeding? (or reply 'no')",
+    "current_medications": "Are you currently taking any medications? (or reply 'none')",
+}
 
 BOOKING_CONFIRM_ID = "BOOKING_CONFIRM"
 BOOKING_CHANGE_ID = "BOOKING_CHANGE"
@@ -88,6 +108,112 @@ async def _send_appointment_picker(sender, bot, db, appointments, action: str) -
         f"Which appointment would you like to {action}?",
         "Select Appointment", [{"title": "Appointments", "rows": rows}], bot,
     )
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# Structured browsing — used by Treatment Enquiry (mode="enquiry") and
+# Book Appointment (mode="booking"). Buttons/lists ONLY, never an open AI
+# question, per the strict per-mode UX rules.
+# ──────────────────────────────────────────────────────────────────────────
+
+async def _send_treatment_list_for_department(sender, bot, db, department: str) -> bool:
+    procs = get_procedures_by_department(db, bot.id, department)
+    if not procs:
+        await _send(sender, f"No treatments are listed yet for {DEPARTMENTS.get(department, {}).get('label', department)}.", bot)
+        return False
+
+    rows = []
+    for p in procs[:10]:
+        tier = f" ({p.package_tier})" if p.package_tier else ""
+        sessions = f" x{p.sessions_required}" if p.sessions_required > 1 else ""
+        rows.append({
+            "id": f"PROC_{p.id}", "title": f"{p.name}{tier}"[:24],
+            "description": f"${p.fee_per_session:.0f}/session{sessions}",
+        })
+    label = DEPARTMENTS.get(department, {}).get("label", department.title())
+    await send_interactive_list(
+        sender, f"{label} Treatments", f"Choose a treatment in {label}:",
+        "View Treatments", [{"title": "Treatments", "rows": rows}], bot,
+    )
+    return True
+
+
+async def _send_treatment_browser(sender, bot, db, memory: dict) -> None:
+    """Entry point for both Enquiry and Booking modes — Department List (if needed)
+    then Treatment List. Never asks an open question."""
+    enabled = get_enabled_departments_for_bot(db, bot.id)
+    if not enabled:
+        await _send(sender, "We're still setting up our treatment list — please contact the clinic directly.", bot)
+        memory["pending_question"] = None
+        memory["pending_field"] = None
+        return
+
+    department = memory.get("locked_department") or memory.get("department")
+    if not department and len(enabled) == 1:
+        department = enabled[0]
+
+    if not department:
+        rows = [{
+            "id": f"DEPT_{slug.upper()}", "title": f"{info['emoji']} {info['label']}",
+            "description": info["description"][:72],
+        } for slug, info in DEPARTMENTS.items() if slug in enabled]
+        await send_interactive_list(
+            sender, "Choose a Category", "Which category are you interested in?",
+            "View Categories", [{"title": "Categories", "rows": rows}], bot,
+        )
+        memory["pending_question"] = "awaiting_department_choice"
+        memory["pending_field"] = None
+        return
+
+    memory["department"] = department
+    found = await _send_treatment_list_for_department(sender, bot, db, department)
+    memory["pending_question"] = "awaiting_procedure_choice" if found else None
+    memory["pending_field"] = None
+
+
+async def _send_enquiry_details(sender, bot, db, memory: dict, proc) -> None:
+    """Mode 2 (Treatment Enquiry) final step: Service Details + Upsell + Package
+    Summary, all as deterministic text/buttons — no AI-authored answer."""
+    lines = [f"*{proc.name}*"]
+    if proc.package_tier:
+        lines.append(f"Package: {proc.package_tier}")
+    lines.append(f"Sessions: {proc.sessions_required}")
+    lines.append(f"Fee: ${proc.fee_per_session:.0f}/session (total ${proc.fee_per_session * proc.sessions_required:.0f})")
+    if proc.description:
+        lines.append(proc.description)
+
+    addons = appointment_service.get_upsell_candidates(memory, bot, db)
+    if addons:
+        addon_lines = "\n".join(f"• {p.name} — ${p.fee_per_session * p.sessions_required:.0f}" for p in addons)
+        lines.append(f"\n💡 *Often combined with:*\n{addon_lines}")
+
+    await send_interactive_buttons(
+        sender, "\n".join(lines),
+        [{"id": f"ENQ_BOOK_{proc.id}", "title": "📅 Book This"}, {"id": ENQ_BROWSE_ID, "title": "🔍 Browse More"}],
+        bot,
+    )
+    memory["pending_question"] = "awaiting_enquiry_action"
+    memory["pending_field"] = None
+
+
+async def _send_quick_date_picker(sender, bot, memory: dict) -> None:
+    from datetime import datetime, timedelta
+    today = datetime.now()
+    choices = [(today, "Today"), (today + timedelta(days=1), "Tomorrow"), (today + timedelta(days=2), None)]
+    buttons = []
+    for d, label in choices:
+        title = label or d.strftime("%A")
+        buttons.append({"id": f"QUICKDATE_{d.strftime('%Y-%m-%d')}", "title": title})
+    await send_interactive_buttons(sender, "What date works for you?", buttons, bot)
+    memory["pending_field"] = "date"
+    memory["pending_question"] = "awaiting_date_pick"
+
+
+async def _send_quick_time_picker(sender, bot, memory: dict) -> None:
+    buttons = [{"id": f"QUICKTIME_{t}", "title": t} for t in ["10:00 AM", "12:30 PM", "4:00 PM"]]
+    await send_interactive_buttons(sender, "What time works for you?", buttons, bot)
+    memory["pending_field"] = "time"
+    memory["pending_question"] = "awaiting_time_pick"
 
 
 async def _handle_booking_intent(sender, memory: dict, bot, db) -> str | None:
@@ -147,6 +273,22 @@ async def _handle_booking_intent(sender, memory: dict, bot, db) -> str | None:
 
     if validation["missing"]:
         next_field = validation["missing"][0]
+
+        if memory.get("mode") == "booking":
+            # Mode 3 rule: buttons/lists/fixed text only — never an open AI question.
+            if next_field == "treatment":
+                await _send_treatment_browser(sender, bot, db, memory)
+                return None
+            if next_field == "date":
+                await _send_quick_date_picker(sender, bot, memory)
+                return None
+            if next_field == "time":
+                await _send_quick_time_picker(sender, bot, memory)
+                return None
+            memory["pending_field"] = next_field
+            memory["pending_question"] = _FIELD_QUESTIONS.get(next_field, f"Could you share your {next_field.replace('_', ' ')}?")
+            return memory["pending_question"]
+
         directive = f"Ask the patient for their {next_field.replace('_', ' ')}, naturally, using everything we already know. Ask only this one thing."
         memory["pending_question"] = directive
         memory["pending_field"] = next_field
@@ -246,8 +388,11 @@ async def handle_turn(sender: str, text: str, bot, db) -> None:
     memory_store.append_history(memory, "user", text)
     text_stripped = text.strip()
 
-    # ── Welcome-screen quick actions — guidance only, never a forced menu ──
+    # ── Welcome-screen quick actions set the MODE for the rest of this chat ──
+    # Mode 1 (Consult): free-form AI conversation. Mode 2/3 (Enquiry/Booking):
+    # buttons/lists only, never an open AI question — per the strict UX rules.
     if text_stripped == QUICK_CONSULT_ID:
+        memory["mode"] = "consult"
         reply = "I'd love to understand your concern and suggest the best options. What's bothering you, or what would you like to improve?"
         memory_store.append_history(memory, "assistant", reply)
         memory_store.save_memory(db, bot.id, sender, memory)
@@ -255,13 +400,75 @@ async def handle_turn(sender: str, text: str, bot, db) -> None:
         return
 
     if text_stripped == QUICK_ENQUIRY_ID:
-        reply = "Sure! Which treatment or concern would you like to know more about (e.g. pricing, sessions, what's involved)?"
-        memory_store.append_history(memory, "assistant", reply)
+        memory["mode"] = "enquiry"
+        await _send_treatment_browser(sender, bot, db, memory)
         memory_store.save_memory(db, bot.id, sender, memory)
-        await _send(sender, reply, bot)
         return
 
     if text_stripped == QUICK_BOOK_ID:
+        memory["mode"] = "booking"
+        reply = await _handle_booking_intent(sender, memory, bot, db)
+        memory_store.append_history(memory, "assistant", reply or "")
+        memory_store.save_memory(db, bot.id, sender, memory)
+        if reply:
+            await _send(sender, reply, bot)
+        return
+
+    # ── Category (department) list tap — Mode 2/3 structured browsing ──────
+    dept_match = _DEPT_BTN_RE.match(text_stripped)
+    if dept_match and memory.get("pending_question") == "awaiting_department_choice":
+        dept_slug = dept_match.group(1).lower()
+        if dept_slug in DEPARTMENTS:
+            memory["department"] = dept_slug
+        memory["pending_question"] = None
+        found = await _send_treatment_list_for_department(sender, bot, db, memory.get("department"))
+        memory["pending_question"] = "awaiting_procedure_choice" if found else None
+        memory_store.save_memory(db, bot.id, sender, memory)
+        return
+
+    # ── Treatment Enquiry (Mode 2): "Book This" / "Browse More" after details ──
+    enq_book_match = _ENQ_BOOK_RE.match(text_stripped)
+    if enq_book_match and memory.get("pending_question") == "awaiting_enquiry_action":
+        memory["mode"] = "booking"
+        memory["pending_question"] = None
+        proc = get_procedure_by_id(db, bot.id, int(enq_book_match.group(1)))
+        if proc:
+            memory["procedure_id"] = proc.id
+            memory["treatment"] = proc.name
+            memory["department"] = proc.department
+            memory["fee_estimate"] = proc.fee_per_session * proc.sessions_required
+        reply = await _handle_booking_intent(sender, memory, bot, db)
+        memory_store.append_history(memory, "assistant", reply or "")
+        memory_store.save_memory(db, bot.id, sender, memory)
+        if reply:
+            await _send(sender, reply, bot)
+        return
+
+    if text_stripped == ENQ_BROWSE_ID and memory.get("pending_question") == "awaiting_enquiry_action":
+        memory["department"] = None
+        memory["pending_question"] = None
+        await _send_treatment_browser(sender, bot, db, memory)
+        memory_store.save_memory(db, bot.id, sender, memory)
+        return
+
+    # ── Quick date/time picks (Mode 3 booking only) ─────────────────────────
+    quickdate_match = _QUICKDATE_RE.match(text_stripped)
+    if quickdate_match and memory.get("pending_field") == "date":
+        memory["date_text"] = quickdate_match.group(1)
+        memory["pending_field"] = None
+        memory["pending_question"] = None
+        reply = await _handle_booking_intent(sender, memory, bot, db)
+        memory_store.append_history(memory, "assistant", reply or "")
+        memory_store.save_memory(db, bot.id, sender, memory)
+        if reply:
+            await _send(sender, reply, bot)
+        return
+
+    quicktime_match = _QUICKTIME_RE.match(text_stripped)
+    if quicktime_match and memory.get("pending_field") == "time":
+        memory["time_text"] = quicktime_match.group(1)
+        memory["pending_field"] = None
+        memory["pending_question"] = None
         reply = await _handle_booking_intent(sender, memory, bot, db)
         memory_store.append_history(memory, "assistant", reply or "")
         memory_store.save_memory(db, bot.id, sender, memory)
@@ -341,7 +548,6 @@ async def handle_turn(sender: str, text: str, bot, db) -> None:
     doc_match = _DOC_BTN_RE.match(text_stripped)
 
     if proc_match and memory.get("pending_question") == "awaiting_procedure_choice":
-        from db import get_procedure_by_id
         proc = get_procedure_by_id(db, bot.id, int(proc_match.group(1)))
         if proc:
             memory["procedure_id"] = proc.id
@@ -349,6 +555,14 @@ async def handle_turn(sender: str, text: str, bot, db) -> None:
             memory["department"] = proc.department
             memory["fee_estimate"] = proc.fee_per_session * proc.sessions_required
         memory["pending_question"] = None
+        memory["pending_field"] = None
+
+        if memory.get("mode") == "enquiry" and proc:
+            await _send_enquiry_details(sender, bot, db, memory, proc)
+            memory_store.append_history(memory, "assistant", "")
+            memory_store.save_memory(db, bot.id, sender, memory)
+            return
+
         reply = await _handle_booking_intent(sender, memory, bot, db)
         memory_store.append_history(memory, "assistant", reply or "")
         memory_store.save_memory(db, bot.id, sender, memory)
@@ -373,7 +587,6 @@ async def handle_turn(sender: str, text: str, bot, db) -> None:
     upsell_add_match = _UPSELL_ADD_RE.match(text_stripped)
     if memory.get("pending_question") == "awaiting_upsell_choice" and (upsell_add_match or text_stripped == UPSELL_SKIP_ID):
         if upsell_add_match:
-            from db import get_procedure_by_id
             addon = get_procedure_by_id(db, bot.id, int(upsell_add_match.group(1)))
             if addon:
                 addon_fee = addon.fee_per_session * addon.sessions_required
@@ -493,6 +706,8 @@ async def handle_turn(sender: str, text: str, bot, db) -> None:
         reply = None
 
     elif intent == "appointment_booking":
+        if not memory.get("mode"):
+            memory["mode"] = "booking"  # explicit booking intent locks in structured mode even via free text
         reply = await _handle_booking_intent(sender, memory, bot, db)
 
     elif intent == "appointment_view":
