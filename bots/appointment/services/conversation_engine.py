@@ -24,6 +24,8 @@ import re
 from db import (
     get_doctors_by_bot, get_procedures_by_bot, get_doctor_by_id, get_procedure_by_id,
     get_procedures_by_department, get_departments_with_procedures, log_bot_event,
+    create_treatment_sessions, get_treatment_schedule, get_patient_profile,
+    get_doctors_by_department,
 )
 from whatsapp_handlers import (
     send_text_message_v2, send_document_v2,
@@ -33,6 +35,7 @@ from utils_pdf import generate_appointment_pdf
 
 from ai.intent import looks_like_question
 from bots.appointment.departments import DEPARTMENTS
+from bots.appointment.intake_questions import INTAKE_QUESTIONS, next_intake_question
 
 from bots.appointment.services import conversation_memory as memory_store
 from bots.appointment.services import intent_classifier
@@ -50,10 +53,6 @@ _CASUAL_GREETING_RE = re.compile(
 )
 # Fields whose answer is just stored verbatim — no parsing needed (date/time get
 # their own normalization elsewhere).
-_DIRECT_CAPTURE_FIELDS = {
-    "treatment", "age", "gender", "city", "allergies", "medical_conditions",
-    "pregnancy_status", "current_medications", "previous_treatments", "patient_name",
-}
 _CANCEL_BTN_RE = re.compile(r"^CANCEL_(\d+)$")
 _RESCHED_BTN_RE = re.compile(r"^RESCHED_(\d+)$")
 _PROC_BTN_RE = re.compile(r"^PROC_(\d+)$")
@@ -69,6 +68,7 @@ _QUICKTIME_RE = re.compile(r"^QUICKTIME_(.+)$")
 # Booking-mode patient-info questions are FIXED text, never AI-composed —
 # "Book Appointment" mode must never drift into open-ended AI consultation.
 _FIELD_QUESTIONS = {
+    "patient_name": "What's your full name?",
     "age": "What's your age?",
     "gender": "What's your gender?",
     "allergies": "Do you have any allergies?",
@@ -88,16 +88,37 @@ _SCREEN_OPTIONS = {
 # Tapping "Yes" on these asks a quick free-text follow-up to specify what.
 _SCREEN_NEEDS_DETAIL = {"allergies", "medical_conditions", "current_medications"}
 _SCREEN_BTN_RE = re.compile(r"^SCREEN_(\w+)_(\w+)$")
+_INTAKE_SKIP_RE = re.compile(r"^INTAKE_SKIP_(\w+)$")
+_INTAKE_BTN_RE = re.compile(r"^INTAKE_(\w+)_(\w+)$")
 
 BOOKING_CONFIRM_ID = "BOOKING_CONFIRM"
 BOOKING_CHANGE_ID = "BOOKING_CHANGE"
 QUICK_CONSULT_ID = "QUICK_CONSULT"
 QUICK_ENQUIRY_ID = "QUICK_ENQUIRY"
 QUICK_BOOK_ID = "QUICK_BOOK"
+RETURN_BOOK_ID = "RETURN_BOOK"
+RETURN_VIEW_ID = "RETURN_VIEW"
+RETURN_RESCHEDULE_ID = "RETURN_RESCHEDULE"
+RETURN_CANCEL_ID = "RETURN_CANCEL"
+RETURN_ASK_ID = "RETURN_ASK"
 
 
 async def _send(sender, text, bot):
     await send_text_message_v2(sender, text, bot)
+
+
+async def _send_returning_customer_menu(sender, bot) -> None:
+    rows = [
+        {"id": RETURN_BOOK_ID, "title": "📝 Book", "description": "Book a new appointment"},
+        {"id": RETURN_VIEW_ID, "title": "📋 View", "description": "View your appointments"},
+        {"id": RETURN_RESCHEDULE_ID, "title": "🔁 Reschedule", "description": "Reschedule an appointment"},
+        {"id": RETURN_CANCEL_ID, "title": "❌ Cancel", "description": "Cancel an appointment"},
+        {"id": RETURN_ASK_ID, "title": "❓ Ask a question", "description": "Hours, location, pricing..."},
+    ]
+    await send_interactive_list(
+        sender, "Returning Customer", "I can help you:", "Select an option",
+        [{"title": "Options", "rows": rows}], bot,
+    )
 
 
 def _appointment_label(a, db, bot) -> str:
@@ -239,6 +260,22 @@ async def _send_screening_buttons(sender, bot, memory: dict, field: str) -> None
     memory["pending_question"] = f"awaiting_screen_{field}"
 
 
+async def _send_intake_question(sender, bot, memory: dict, q: dict) -> None:
+    """Sends one category-specific patient intake question (see intake_questions.py)
+    as buttons, a list, or free text with a Skip option — deterministic, no AI."""
+    key = q["key"]
+    if q["type"] == "buttons":
+        buttons = [{"id": f"INTAKE_{key}_{val}", "title": label} for val, label in q["options"]]
+        await send_interactive_buttons(sender, q["question"], buttons, bot)
+    elif q["type"] == "list":
+        rows = [{"id": f"INTAKE_{key}_{val}", "title": label} for val, label in q["options"]]
+        await send_interactive_list(sender, "Choose one", q["question"], "Select", [{"title": "Options", "rows": rows}], bot)
+    else:  # text_or_skip
+        await send_interactive_buttons(sender, q["question"], [{"id": f"INTAKE_SKIP_{key}", "title": "Skip / None"}], bot)
+    memory["pending_field"] = key
+    memory["pending_question"] = f"awaiting_intake_{key}"
+
+
 async def _handle_booking_intent(sender, memory: dict, bot, db) -> str | None:
     memory["pending_field"] = None  # cleared here, re-set below only if we end up asking for one
     validation = await appointment_service.resolve_and_validate(memory, bot, db)
@@ -260,6 +297,16 @@ async def _handle_booking_intent(sender, memory: dict, bot, db) -> str | None:
         return None
 
     if validation["doctor_options"]:
+        if memory.get("mode") == "booking" and not memory.get("_doctor_choice_asked"):
+            memory["_doctor_choice_asked"] = True
+            await send_interactive_buttons(
+                sender, "Preferred doctor?",
+                [{"id": "DOCTOR_ANY", "title": "Any available doctor"}, {"id": "DOCTOR_SELECT", "title": "Select doctor"}],
+                bot,
+            )
+            memory["pending_question"] = "awaiting_doctor_mode_choice"
+            return None
+
         rows = [{
             "id": f"DOC_{d.id}", "title": f"Dr. {d.name}"[:24],
             "description": f"${d.consultation_fee:.0f} • {(d.bio or 'Specialist')[:50]}",
@@ -320,6 +367,23 @@ async def _handle_booking_intent(sender, memory: dict, bot, db) -> str | None:
             if next_field == "time":
                 await _send_quick_time_picker(sender, bot, memory)
                 return None
+            if next_field == "gender" and next_field in _SCREEN_OPTIONS:
+                await _send_screening_buttons(sender, bot, memory, next_field)
+                return None
+            intake_q = next_intake_question(memory.get("department"), memory)
+            if intake_q and intake_q["key"] == next_field:
+                # Category-specific phrasing (intake_questions.py) takes priority
+                # over the generic Yes/No screening text for any overlapping key.
+                await _send_intake_question(sender, bot, memory, intake_q)
+                return None
+            if next_field == "phone_confirm":
+                await send_interactive_buttons(
+                    sender, f"Use this WhatsApp number ({sender}) for your booking, or add a different number?",
+                    [{"id": "PHONE_USE", "title": "Use this number"}, {"id": "PHONE_ADD", "title": "Add a different number"}],
+                    bot,
+                )
+                memory["pending_question"] = "awaiting_phone_confirm"
+                return None
             if next_field in _SCREEN_OPTIONS:
                 await _send_screening_buttons(sender, bot, memory, next_field)
                 return None
@@ -364,9 +428,31 @@ async def _finalize_booking(sender, memory: dict, bot, db) -> str:
     except Exception as exc:
         logger.warning(f"[conversation_engine] PDF send failed: {exc}")
 
+    if procedure and procedure.sessions_required and procedure.sessions_required > 1:
+        sessions = create_treatment_sessions(db, appt, procedure.sessions_required, interval_days=21)
+        await _send(sender, _format_treatment_schedule(sessions, procedure), bot)
+
     memory_store.reset_booking_fields(memory)
     memory["awaiting_confirmation"] = False
     return "✅ You're all booked! I've sent your confirmation as a PDF above. Is there anything else I can help with?"
+
+
+def _format_treatment_schedule(sessions, procedure) -> str:
+    from datetime import datetime as _dt
+    lines = ["*Treatment Schedule*", ""]
+    for s in sessions:
+        date_obj = _dt.strptime(s.appointment_date, "%Y-%m-%d")
+        time_obj = _dt.strptime(s.appointment_time, "%H:%M")
+        lines.append(
+            f"Session {s.session_number}: {date_obj.strftime('%d %B %Y')} at "
+            f"{time_obj.strftime('%I:%M %p').lstrip('0')} — {s.status}"
+        )
+    lines.append("")
+    lines.append(f"Total Sessions: {procedure.sessions_required}")
+    lines.append(f"Package Amount: ${procedure.fee_per_session * procedure.sessions_required:.0f}")
+    lines.append("")
+    lines.append("Future sessions are auto-scheduled — our team will confirm or adjust each one closer to the date.")
+    return "\n".join(lines)
 
 
 async def handle_turn(sender: str, text: str, bot, db) -> None:
@@ -538,6 +624,66 @@ async def handle_turn(sender: str, text: str, bot, db) -> None:
             await _send(sender, reply, bot)
         return
 
+    # ── Returning Customer menu taps ────────────────────────────────────────
+    if text_stripped == RETURN_BOOK_ID:
+        memory["mode"] = "booking"
+        reply = await _handle_booking_intent(sender, memory, bot, db)
+        memory_store.append_history(memory, "assistant", reply or "")
+        memory_store.save_memory(db, bot.id, sender, memory)
+        if reply:
+            await _send(sender, reply, bot)
+        return
+
+    if text_stripped == RETURN_VIEW_ID:
+        appointments = appointment_service.list_upcoming(bot, db, sender)
+        if not appointments:
+            reply = "You have no upcoming appointments right now. Would you like to book one?"
+            memory_store.append_history(memory, "assistant", reply)
+            memory_store.save_memory(db, bot.id, sender, memory)
+            await _send(sender, reply, bot)
+        else:
+            lines = [f"#{a.id} {_appointment_label(a, db, bot)} — {a.appointment_date} at {a.appointment_time}" for a in appointments]
+            reply = "*Your Upcoming Appointments:*\n" + "\n".join(lines)
+            memory_store.append_history(memory, "assistant", reply)
+            memory_store.save_memory(db, bot.id, sender, memory)
+            await _send(sender, reply, bot)
+        return
+
+    if text_stripped == RETURN_RESCHEDULE_ID:
+        appointments = appointment_service.list_upcoming(bot, db, sender)
+        if not appointments:
+            reply = "You have no upcoming appointments to reschedule."
+            memory_store.append_history(memory, "assistant", reply)
+            memory_store.save_memory(db, bot.id, sender, memory)
+            await _send(sender, reply, bot)
+        else:
+            await _send_appointment_picker(sender, bot, db, appointments, "reschedule")
+            memory["pending_question"] = "awaiting_reschedule_choice"
+            memory["_candidate_ids"] = [a.id for a in appointments]
+            memory_store.save_memory(db, bot.id, sender, memory)
+        return
+
+    if text_stripped == RETURN_CANCEL_ID:
+        appointments = appointment_service.list_upcoming(bot, db, sender)
+        if not appointments:
+            reply = "You have no upcoming appointments to cancel."
+            memory_store.append_history(memory, "assistant", reply)
+            memory_store.save_memory(db, bot.id, sender, memory)
+            await _send(sender, reply, bot)
+        else:
+            await _send_appointment_picker(sender, bot, db, appointments, "cancel")
+            memory["pending_question"] = "awaiting_cancel_choice"
+            memory["_candidate_ids"] = [a.id for a in appointments]
+            memory_store.save_memory(db, bot.id, sender, memory)
+        return
+
+    if text_stripped == RETURN_ASK_ID:
+        reply = "Sure — what would you like to know? (hours, location, pricing, a treatment...)"
+        memory_store.append_history(memory, "assistant", reply)
+        memory_store.save_memory(db, bot.id, sender, memory)
+        await _send(sender, reply, bot)
+        return
+
     # ── Category (department) list tap — Mode 2/3 structured browsing ──────
     dept_match = _DEPT_BTN_RE.match(text_stripped)
     if dept_match and memory.get("pending_question") == "awaiting_department_choice":
@@ -619,6 +765,38 @@ async def handle_turn(sender: str, text: str, bot, db) -> None:
             await _send(sender, reply, bot)
         return
 
+    # ── Category-specific intake question taps (see intake_questions.py) ───
+    intake_skip_match = _INTAKE_SKIP_RE.match(text_stripped)
+    if intake_skip_match and memory.get("pending_field") == intake_skip_match.group(1):
+        memory[intake_skip_match.group(1)] = "None"
+        memory["pending_field"] = None
+        memory["pending_question"] = None
+        reply = await _handle_booking_intent(sender, memory, bot, db)
+        memory_store.append_history(memory, "assistant", reply or "")
+        memory_store.save_memory(db, bot.id, sender, memory)
+        if reply:
+            await _send(sender, reply, bot)
+        return
+
+    intake_match = _INTAKE_BTN_RE.match(text_stripped)
+    if intake_match and intake_match.group(1) == memory.get("pending_field"):
+        field, value = intake_match.group(1), intake_match.group(2)
+        label = value
+        for dept_questions in INTAKE_QUESTIONS.values():
+            for q in dept_questions:
+                if q["key"] == field:
+                    label = dict(q["options"]).get(value, value)
+                    break
+        memory[field] = label
+        memory["pending_field"] = None
+        memory["pending_question"] = None
+        reply = await _handle_booking_intent(sender, memory, bot, db)
+        memory_store.append_history(memory, "assistant", reply or "")
+        memory_store.save_memory(db, bot.id, sender, memory)
+        if reply:
+            await _send(sender, reply, bot)
+        return
+
     # ── Button taps are handled deterministically, never re-classified ─────
     cancel_match = _CANCEL_BTN_RE.match(text_stripped)
     resched_match = _RESCHED_BTN_RE.match(text_stripped)
@@ -686,6 +864,38 @@ async def handle_turn(sender: str, text: str, bot, db) -> None:
             memory_store.save_memory(db, bot.id, sender, memory)
             await _send(sender, reply, bot)
             return
+
+    if text_stripped == "PHONE_USE" and memory.get("pending_question") == "awaiting_phone_confirm":
+        memory["phone_confirmed"] = True
+        memory["pending_question"] = None
+        reply = await _handle_booking_intent(sender, memory, bot, db)
+        memory_store.append_history(memory, "assistant", reply or "")
+        memory_store.save_memory(db, bot.id, sender, memory)
+        if reply:
+            await _send(sender, reply, bot)
+        return
+
+    if text_stripped == "PHONE_ADD" and memory.get("pending_question") == "awaiting_phone_confirm":
+        memory["pending_field"] = "alt_phone"
+        memory["pending_question"] = "Please share the number you'd like us to use."
+        reply = memory["pending_question"]
+        memory_store.append_history(memory, "assistant", reply)
+        memory_store.save_memory(db, bot.id, sender, memory)
+        await _send(sender, reply, bot)
+        return
+
+    if text_stripped in ("DOCTOR_ANY", "DOCTOR_SELECT") and memory.get("pending_question") == "awaiting_doctor_mode_choice":
+        memory["pending_question"] = None
+        if text_stripped == "DOCTOR_ANY":
+            pool = get_doctors_by_department(db, bot.id, memory.get("department")) if memory.get("department") else get_doctors_by_bot(db, bot.id)
+            if pool:
+                memory["doctor_id"] = pool[0].id
+        reply = await _handle_booking_intent(sender, memory, bot, db)
+        memory_store.append_history(memory, "assistant", reply or "")
+        memory_store.save_memory(db, bot.id, sender, memory)
+        if reply:
+            await _send(sender, reply, bot)
+        return
 
     proc_match = _PROC_BTN_RE.match(text_stripped)
     doc_match = _DOC_BTN_RE.match(text_stripped)
@@ -791,7 +1001,13 @@ async def handle_turn(sender: str, text: str, bot, db) -> None:
                 memory["date_text"] = text_stripped
             elif field == "time":
                 memory["time_text"] = text_stripped
-            elif field in _DIRECT_CAPTURE_FIELDS:
+            elif field == "alt_phone":
+                memory["alt_phone"] = text_stripped
+                memory["phone_confirmed"] = True
+            else:
+                # pending_field is always something WE set deliberately (a fixed
+                # screening field or an intake_questions.py key) — safe to store
+                # the literal reply directly, no whitelist needed.
                 memory[field] = text_stripped
             reply = await _handle_booking_intent(sender, memory, bot, db)
             memory_store.append_history(memory, "assistant", reply or "")
@@ -866,19 +1082,22 @@ async def handle_turn(sender: str, text: str, bot, db) -> None:
     reply: str | None = None
 
     if intent == "greeting":
-        lead_in = await response_composer.compose(
-            "Greet the patient warmly as a premium aesthetic/dental clinic receptionist. Keep it to one short, welcoming sentence — the next message will show their options.",
-            memory, bot, db,
-        )
-        await send_interactive_buttons(
-            sender, lead_in,
-            [
-                {"id": QUICK_CONSULT_ID, "title": "Consult with AI ✨"},
-                {"id": QUICK_ENQUIRY_ID, "title": "Treatment Enquiry 💬"},
-                {"id": QUICK_BOOK_ID, "title": "Book Appointment 📅"},
-            ],
-            bot,
-        )
+        if get_patient_profile(db, bot.id, sender):
+            await _send_returning_customer_menu(sender, bot)
+        else:
+            lead_in = await response_composer.compose(
+                "Greet the patient warmly as a premium aesthetic/dental clinic receptionist. Keep it to one short, welcoming sentence — the next message will show their options.",
+                memory, bot, db,
+            )
+            await send_interactive_buttons(
+                sender, lead_in,
+                [
+                    {"id": QUICK_CONSULT_ID, "title": "Consult with AI ✨"},
+                    {"id": QUICK_ENQUIRY_ID, "title": "Treatment Enquiry 💬"},
+                    {"id": QUICK_BOOK_ID, "title": "Book Appointment 📅"},
+                ],
+                bot,
+            )
         reply = None
 
     elif intent == "appointment_booking":

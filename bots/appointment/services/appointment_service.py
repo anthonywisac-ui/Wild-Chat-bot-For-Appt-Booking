@@ -218,16 +218,11 @@ def save_patient_profile(memory: dict, bot, db, sender: str) -> None:
 
 
 def _required_screening_fields(department: str | None, gender: str | None = None) -> list[str]:
-    """Core screening for every booking, plus pregnancy/medication questions for
-    anything cosmetic/medical (skin, hair, laser, injectables, body) — not needed
-    for routine dental visits. Pregnancy/breastfeeding is never asked of a patient
-    who has told us they are male."""
-    fields = ["age", "gender", "allergies", "medical_conditions"]
-    if department and department != "dental":
-        if (gender or "").strip().lower() != "male":
-            fields.append("pregnancy_status")
-        fields.append("current_medications")
-    return fields
+    """Department-agnostic identity fields, asked once before the category-specific
+    intake questionnaire (see intake_questions.py) takes over for allergies, medical
+    conditions, pregnancy, medications, etc. — each asked with category-appropriate
+    wording instead of one generic set."""
+    return ["patient_name", "age", "gender"]
 
 
 # ──────────────────────────────────────────────────────────────────────────
@@ -268,10 +263,6 @@ async def resolve_and_validate(memory: dict, bot, db) -> dict:
             if not memory.get("fee_estimate"):
                 memory["fee_estimate"] = doctor.consultation_fee
 
-    doctor_options = find_candidate_doctors(memory, bot, db, memory.get("department"))
-    if doctor_options:
-        return {"missing": [], "blocking_error": None, "procedure_options": [], "doctor_options": doctor_options}
-
     missing = []
     if memory.get("mode") == "booking":
         # Mode 3 always walks through the explicit Treatment List step — a vague
@@ -285,6 +276,21 @@ async def resolve_and_validate(memory: dict, bot, db) -> dict:
     for field in _required_screening_fields(memory.get("department"), memory.get("gender")):
         if not memory.get(field):
             missing.append(field)
+
+    doctor_options = []
+    if not missing:
+        from bots.appointment.intake_questions import next_intake_question
+        next_q = next_intake_question(memory.get("department"), memory)
+        if next_q:
+            missing.append(next_q["key"])
+        elif memory.get("mode") == "booking" and not memory.get("phone_confirmed"):
+            missing.append("phone_confirm")
+        else:
+            # Doctor preference is asked last, right before date/time — patient
+            # details and intake answers come first per the clinic's intake order.
+            doctor_options = find_candidate_doctors(memory, bot, db, memory.get("department"))
+            if doctor_options:
+                return {"missing": [], "blocking_error": None, "procedure_options": [], "doctor_options": doctor_options}
 
     if not memory.get("date_text") and not memory.get("date_iso"):
         missing.append("date")
@@ -376,6 +382,7 @@ def booking_summary_text(memory: dict, bot, db) -> str:
 
 
 def finalize_booking(memory: dict, bot, db, sender: str):
+    notes = f"Contact number: {memory['alt_phone']}" if memory.get("alt_phone") else ""
     appt = create_appointment(
         db, owner_id=bot.owner_id, bot_id=bot.id, customer_phone=sender,
         service=memory.get("treatment") or "Consultation",
@@ -384,6 +391,7 @@ def finalize_booking(memory: dict, bot, db, sender: str):
         consultation_fee=memory.get("fee_estimate") or 0.0,
         procedure_id=memory.get("procedure_id"),
         customer_name=memory.get("patient_name") or "",
+        notes=notes,
     )
     save_patient_profile(memory, bot, db, sender)
     save_lead_snapshot(memory, bot, db, sender, status="booked")

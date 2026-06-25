@@ -303,9 +303,11 @@ class Appointment(Base):
     consultation_fee = Column(Float, default=0.0)
     appointment_date = Column(String, default="")   # normalized YYYY-MM-DD (falls back to free text if unparsable)
     appointment_time = Column(String, default="")    # normalized HH:MM 24h (falls back to free text if unparsable)
-    status = Column(String, default="Confirmed", index=True)  # Confirmed | Cancelled | Rescheduled | Completed
+    status = Column(String, default="Confirmed", index=True)  # Confirmed | Cancelled | Rescheduled | Completed | Scheduled
     notes = Column(Text, default="")
     reminder_sent = Column(Boolean, default=False)
+    parent_appointment_id = Column(Integer, ForeignKey("appointments.id", ondelete="CASCADE"), nullable=True, index=True)
+    session_number = Column(Integer, default=1)  # 1 = the booked/confirmed visit; 2+ = auto-projected future sessions of the same package
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -554,6 +556,41 @@ def create_appointment(db: Session, owner_id: int, bot_id: int, customer_phone: 
                   f"#{appt.id} | {service} | {appointment_date} {appointment_time}",
                   customer_phone=customer_phone)
     return appt
+
+def create_treatment_sessions(db: Session, parent_appt: "Appointment", sessions_required: int, interval_days: int = 21) -> list:
+    """For a multi-session package, auto-projects the remaining sessions (2..N) at a
+    fixed interval after the patient's confirmed first visit. These are 'Scheduled'
+    placeholders the clinic can reschedule individually later — they carry no extra
+    fee since the package total is already recorded on the first (parent) session."""
+    from datetime import datetime as _dt, timedelta as _td
+    if sessions_required <= 1:
+        return [parent_appt]
+    parent_appt.session_number = 1
+    sessions = [parent_appt]
+    base_date = _dt.strptime(parent_appt.appointment_date, "%Y-%m-%d")
+    for n in range(2, sessions_required + 1):
+        session_date = (base_date + _td(days=interval_days * (n - 1))).strftime("%Y-%m-%d")
+        child = Appointment(
+            owner_id=parent_appt.owner_id, bot_id=parent_appt.bot_id, customer_phone=parent_appt.customer_phone,
+            customer_name=parent_appt.customer_name, service=parent_appt.service, department=parent_appt.department,
+            doctor_id=parent_appt.doctor_id, consultation_fee=0.0, procedure_id=parent_appt.procedure_id,
+            appointment_date=session_date, appointment_time=parent_appt.appointment_time,
+            status="Scheduled", parent_appointment_id=parent_appt.id, session_number=n,
+        )
+        db.add(child)
+        sessions.append(child)
+    db.commit()
+    for s in sessions:
+        db.refresh(s)
+    return sessions
+
+def get_treatment_schedule(db: Session, bot_id: int, parent_appointment_id: int) -> list:
+    """Returns the full session list (parent + auto-projected sessions) ordered by session_number."""
+    rows = db.query(Appointment).filter(
+        Appointment.bot_id == bot_id,
+        (Appointment.id == parent_appointment_id) | (Appointment.parent_appointment_id == parent_appointment_id),
+    ).order_by(Appointment.session_number).all()
+    return rows
 
 # ========== Doctor CRUD ==========
 
@@ -879,6 +916,8 @@ def migrate_db():
                     "doctor_id INTEGER",
                     "procedure_id INTEGER",
                     "consultation_fee FLOAT DEFAULT 0.0",
+                    "parent_appointment_id INTEGER",
+                    "session_number INTEGER DEFAULT 1",
                 ]),
                 ("procedures", ["package_tier TEXT DEFAULT ''"]),
             ]:
