@@ -89,6 +89,7 @@ _SCREEN_OPTIONS = {
 _SCREEN_NEEDS_DETAIL = {"allergies", "medical_conditions", "current_medications"}
 _SCREEN_BTN_RE = re.compile(r"^SCREEN_(\w+)_(\w+)$")
 _INTAKE_SKIP_RE = re.compile(r"^INTAKE_SKIP_(\w+)$")
+_INTAKE_YES_RE = re.compile(r"^INTAKE_YES_(\w+)$")
 _INTAKE_BTN_RE = re.compile(r"^INTAKE_(\w+)_(\w+)$")
 
 BOOKING_CONFIRM_ID = "BOOKING_CONFIRM"
@@ -271,7 +272,11 @@ async def _send_intake_question(sender, bot, memory: dict, q: dict) -> None:
         rows = [{"id": f"INTAKE_{key}_{val}", "title": label} for val, label in q["options"]]
         await send_interactive_list(sender, "Choose one", q["question"], "Select", [{"title": "Options", "rows": rows}], bot)
     else:  # text_or_skip
-        await send_interactive_buttons(sender, q["question"], [{"id": f"INTAKE_SKIP_{key}", "title": "Skip / None"}], bot)
+        await send_interactive_buttons(
+            sender, q["question"],
+            [{"id": f"INTAKE_SKIP_{key}", "title": "Skip / None"}, {"id": f"INTAKE_YES_{key}", "title": "Yes"}],
+            bot,
+        )
     memory["pending_field"] = key
     memory["pending_question"] = f"awaiting_intake_{key}"
 
@@ -419,8 +424,12 @@ async def _finalize_booking(sender, memory: dict, bot, db) -> str:
     doctor = get_doctor_by_id(db, bot.id, appt.doctor_id) if appt.doctor_id else None
     procedure = get_procedure_by_id(db, bot.id, appt.procedure_id) if appt.procedure_id else None
 
+    sessions = None
+    if procedure and procedure.sessions_required and procedure.sessions_required > 1:
+        sessions = create_treatment_sessions(db, appt, procedure.sessions_required, interval_days=21)
+
     try:
-        file_path = generate_appointment_pdf(appt, bot, doctor=doctor, procedure=procedure)
+        file_path = generate_appointment_pdf(appt, bot, doctor=doctor, procedure=procedure, sessions=sessions)
         await send_document_v2(
             sender, file_path, f"appointment_{appt.id}.pdf", bot,
             caption=f"Appointment #{appt.id} confirmation",
@@ -428,8 +437,7 @@ async def _finalize_booking(sender, memory: dict, bot, db) -> str:
     except Exception as exc:
         logger.warning(f"[conversation_engine] PDF send failed: {exc}")
 
-    if procedure and procedure.sessions_required and procedure.sessions_required > 1:
-        sessions = create_treatment_sessions(db, appt, procedure.sessions_required, interval_days=21)
+    if sessions:
         await _send(sender, _format_treatment_schedule(sessions, procedure), bot)
 
     memory_store.reset_booking_fields(memory)
@@ -776,6 +784,17 @@ async def handle_turn(sender: str, text: str, bot, db) -> None:
         memory_store.save_memory(db, bot.id, sender, memory)
         if reply:
             await _send(sender, reply, bot)
+        return
+
+    intake_yes_match = _INTAKE_YES_RE.match(text_stripped)
+    if intake_yes_match and memory.get("pending_field") == intake_yes_match.group(1):
+        # pending_field stays the same key — the next free-text reply gets
+        # captured straight into it by the generic pending_field mechanism.
+        memory["pending_question"] = "Please go ahead and specify."
+        reply = memory["pending_question"]
+        memory_store.append_history(memory, "assistant", reply)
+        memory_store.save_memory(db, bot.id, sender, memory)
+        await _send(sender, reply, bot)
         return
 
     intake_match = _INTAKE_BTN_RE.match(text_stripped)

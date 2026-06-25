@@ -1,4 +1,5 @@
 # whatsapp_handlers.py - from your original, full version
+import asyncio
 import aiohttp
 import random
 import time
@@ -6,6 +7,28 @@ from config import WHATSAPP_TOKEN, WHATSAPP_PHONE_NUMBER_ID, MANAGER_NUMBER, WHA
 from session import SharedSession
 from utils import truncate_title, safe_btn, get_order_total, get_order_text, get_delivery_fee
 from db import SessionLocal, get_session_data, save_session_data, save_new_order, WhatsappBot
+
+
+async def _post_with_retry(url, payload, headers, label: str, retries: int = 1, backoff: float = 1.5) -> bool:
+    """Posts to the Meta API with one automatic retry on transient failure
+    (network error or non-2xx response). Without this, a single dropped
+    request leaves the patient with total silence and no error shown — they
+    had to guess to retap the same button to get anywhere."""
+    last_error = None
+    for attempt in range(retries + 1):
+        try:
+            session = await SharedSession.get_session()
+            async with session.post(url, json=payload, headers=headers) as r:
+                if r.status < 400:
+                    return True
+                body = await r.text()
+                last_error = f"HTTP {r.status}: {body}"
+        except Exception as exc:
+            last_error = str(exc)
+        if attempt < retries:
+            await asyncio.sleep(backoff)
+    print(f"{label} failed after {retries + 1} attempt(s): {last_error}")
+    return False
 
 # These will be imported from bot-specific modules
 MENU = {}
@@ -46,13 +69,7 @@ async def send_text_message_v2(to, message, bot: WhatsappBot):
     url      = f"https://graph.facebook.com/v19.0/{phone_id}/messages"
     headers  = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
     payload  = {"messaging_product": "whatsapp", "to": to, "type": "text", "text": {"body": message}}
-    try:
-        session = await SharedSession.get_session()
-        async with session.post(url, json=payload, headers=headers) as r:
-            if r.status >= 400:
-                print(f"send_text_message_v2 failed {r.status} for bot {bot.name}")
-    except Exception as e:
-        print(f"send_text_message_v2 exception: {e}")
+    await _post_with_retry(url, payload, headers, f"send_text_message_v2 (bot {bot.name})")
 
 async def send_document_v2(to, file_path, filename, bot: WhatsappBot, caption: str = ""):
     """
@@ -97,17 +114,7 @@ async def send_interactive_list(to, header_text, body_text, button_text, section
     phone_id = bot.phone_number_id if bot and bot.phone_number_id else WHATSAPP_PHONE_NUMBER_ID
     url      = f"https://graph.facebook.com/{WHATSAPP_API_VERSION}/{phone_id}/messages"
     headers  = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
-    try:
-        session = await SharedSession.get_session()
-        async with session.post(url, json=payload, headers=headers) as r:
-            if r.status >= 400:
-                body = await r.text()
-                print(f"send_interactive_list failed {r.status}: {body}")
-                return False
-            return True
-    except Exception as e:
-        print(f"send_interactive_list exception: {e}")
-        return False
+    return await _post_with_retry(url, payload, headers, "send_interactive_list")
 
 async def send_interactive_buttons(to, body_text, buttons, bot: WhatsappBot):
     """
@@ -134,17 +141,7 @@ async def send_interactive_buttons(to, body_text, buttons, bot: WhatsappBot):
     phone_id = bot.phone_number_id if bot and bot.phone_number_id else WHATSAPP_PHONE_NUMBER_ID
     url      = f"https://graph.facebook.com/{WHATSAPP_API_VERSION}/{phone_id}/messages"
     headers  = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
-    try:
-        session = await SharedSession.get_session()
-        async with session.post(url, json=payload, headers=headers) as r:
-            if r.status >= 400:
-                body = await r.text()
-                print(f"send_interactive_buttons failed {r.status}: {body}")
-                return False
-            return True
-    except Exception as e:
-        print(f"send_interactive_buttons exception: {e}")
-        return False
+    return await _post_with_retry(url, payload, headers, "send_interactive_buttons")
 
 async def send_language_selection(sender):
     url = f"https://graph.facebook.com/{WHATSAPP_API_VERSION}/{WHATSAPP_PHONE_NUMBER_ID}/messages"
