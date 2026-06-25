@@ -51,6 +51,22 @@ _CASUAL_GREETING_RE = re.compile(
     r"^(hi+|hello+|hey+|salam\w*|assalam\w*|yo|ok(ay)?|hmm+|good\s*(morning|afternoon|evening))[\s!.?]*$",
     re.IGNORECASE,
 )
+_DATE_HINT_RE = re.compile(
+    r"\d|today|tomorrow|tonight|mon|tue|wed|thu|fri|sat|sun|jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec|next\s*week",
+    re.IGNORECASE,
+)
+_TIME_HINT_RE = re.compile(
+    r"\d|morning|afternoon|evening|noon|midnight|am\b|pm\b",
+    re.IGNORECASE,
+)
+
+
+def _looks_date_like(text: str) -> bool:
+    return bool(_DATE_HINT_RE.search(text))
+
+
+def _looks_time_like(text: str) -> bool:
+    return bool(_TIME_HINT_RE.search(text))
 # Fields whose answer is just stored verbatim — no parsing needed (date/time get
 # their own normalization elsewhere).
 _CANCEL_BTN_RE = re.compile(r"^CANCEL_(\d+)$")
@@ -1015,6 +1031,21 @@ async def handle_turn(sender: str, text: str, bot, db) -> None:
             return
         if not looks_like_question(text_stripped):
             field = memory.pop("pending_field")
+            # A reply that clearly doesn't look like a date/time (e.g. "None",
+            # "Hu" — typically a retyped previous answer because the picker
+            # buttons didn't visibly arrive) must NOT be stored as the literal
+            # date_text/time_text: that corrupts the field and gets fed into
+            # the AI date parser, producing nonsense like "did you mean Hour?".
+            # Re-show the picker instead, in mode=="booking", keeping pending_field set.
+            if field == "date" and not _looks_date_like(text_stripped) and memory.get("mode") == "booking":
+                await _send_quick_date_picker(sender, bot, memory)
+                memory_store.save_memory(db, bot.id, sender, memory)
+                return
+            if field == "time" and not _looks_time_like(text_stripped) and memory.get("mode") == "booking":
+                await _send_quick_time_picker(sender, bot, memory)
+                memory_store.save_memory(db, bot.id, sender, memory)
+                return
+
             memory["pending_question"] = None
             if field == "date":
                 memory["date_text"] = text_stripped
@@ -1120,8 +1151,13 @@ async def handle_turn(sender: str, text: str, bot, db) -> None:
         reply = None
 
     elif intent == "appointment_booking":
-        if not memory.get("mode"):
-            memory["mode"] = "booking"  # explicit booking intent locks in structured mode even via free text
+        # Always lock into structured Mode 3 once genuine booking intent is
+        # detected — even mid-Consult-mode conversation. Without this, a
+        # patient who says "yes, book it" while mode is already "consult"
+        # never actually transitions: the AI free-text-replies "I've booked
+        # your appointment" without ever collecting details, validating
+        # availability, or creating a real Appointment record.
+        memory["mode"] = "booking"
         reply = await _handle_booking_intent(sender, memory, bot, db)
 
     elif intent == "appointment_view":
