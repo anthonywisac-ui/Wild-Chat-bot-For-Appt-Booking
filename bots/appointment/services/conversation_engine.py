@@ -78,25 +78,6 @@ async def _send_appointment_picker(sender, bot, db, appointments, action: str) -
     )
 
 
-async def _reconnect_to_pending_request(memory: dict, bot, db) -> str | None:
-    """After answering a side question, naturally steer back to whatever the
-    patient was in the middle of — instead of just dropping the topic."""
-    if not (memory.get("treatment") or memory.get("department") or memory.get("concern")):
-        return None
-    if memory.get("date_iso") and memory.get("time_24h"):
-        return None  # already fully resolved, nothing to steer back to
-
-    validation = await appointment_service.resolve_and_validate(memory, bot, db)
-    if not validation["missing"]:
-        return None
-
-    directive = (
-        "Briefly transition back to their appointment request with a phrase like "
-        f"'Coming back to your appointment...' and ask for: {validation['missing'][0]}."
-    )
-    return await response_composer.compose(directive, memory, bot, db)
-
-
 async def _handle_booking_intent(sender, memory: dict, bot, db) -> str | None:
     validation = await appointment_service.resolve_and_validate(memory, bot, db)
 
@@ -191,6 +172,61 @@ async def _finalize_booking(sender, memory: dict, bot, db) -> str:
 
 
 async def handle_turn(sender: str, text: str, bot, db) -> None:
+    text_stripped_early = text.strip()
+    lowered_early = text_stripped_early.lower()
+
+    # ── Testing/admin shortcuts — checked before anything else, never AI-classified ──
+    if lowered_early == "-reset":
+        from db import reset_customer
+        reset_customer(db, bot.id, sender)
+        await send_interactive_buttons(
+            sender,
+            "🔄 All set — starting fresh as a new customer!\n\n"
+            f"✨ Welcome to *{bot.business_name or bot.name}*. How can we help you today?",
+            [
+                {"id": QUICK_CONSULT_ID, "title": "Consult with AI ✨"},
+                {"id": QUICK_ENQUIRY_ID, "title": "Treatment Enquiry 💬"},
+                {"id": QUICK_BOOK_ID, "title": "Book Appointment 📅"},
+            ],
+            bot,
+        )
+        return
+
+    if lowered_early in ("-aesthetic", "-ashtetic"):
+        memory = memory_store.load_memory(db, bot.id, sender)
+        memory["locked_department"] = "aesthetic"
+        reply = "Got it — we'll keep this chat focused on Aesthetic & Cosmetic treatments only. How can I help?"
+        memory_store.append_history(memory, "assistant", reply)
+        memory_store.save_memory(db, bot.id, sender, memory)
+        await _send(sender, reply, bot)
+        return
+
+    if lowered_early == "-dental":
+        memory = memory_store.load_memory(db, bot.id, sender)
+        memory["locked_department"] = "dental"
+        reply = "Got it — we'll keep this chat focused on Dental treatments only. How can I help?"
+        memory_store.append_history(memory, "assistant", reply)
+        memory_store.save_memory(db, bot.id, sender, memory)
+        await _send(sender, reply, bot)
+        return
+
+    if lowered_early == "-reports":
+        from datetime import datetime, timedelta
+        from db import get_report_stats
+        now = datetime.utcnow()
+        daily = get_report_stats(db, bot.id, now - timedelta(days=1))
+        weekly = get_report_stats(db, bot.id, now - timedelta(days=7))
+        monthly = get_report_stats(db, bot.id, now - timedelta(days=30))
+
+        def _line(label, stats):
+            return f"*{label}:* {stats['appointments']} appointments, ${stats['revenue']:.0f} revenue, {stats['leads']} new leads, {stats['cancelled']} cancelled"
+
+        reply = "📊 *Clinic Reports*\n\n" + "\n\n".join([
+            _line("Today", daily), _line("This Week", weekly), _line("This Month", monthly),
+        ])
+        await _send(sender, reply, bot)
+        return
+
     memory = memory_store.load_memory(db, bot.id, sender)
     memory = appointment_service.load_patient_profile(memory, bot, db, sender)
     memory_store.append_history(memory, "user", text)
@@ -249,6 +285,43 @@ async def handle_turn(sender: str, text: str, bot, db) -> None:
         memory_store.save_memory(db, bot.id, sender, memory)
         await _send(sender, reply, bot)
         return
+
+    # ── Plain-text replies to a cancel/reschedule list ("#1", "1", "appointment 2") ─
+    if memory.get("pending_question") in ("awaiting_cancel_choice", "awaiting_reschedule_choice"):
+        num_match = re.search(r"#?\s*(\d+)", text_stripped)
+        candidate_ids = memory.get("_candidate_ids") or []
+        if num_match and int(num_match.group(1)) in candidate_ids:
+            chosen_id = int(num_match.group(1))
+            action = "cancel" if memory["pending_question"] == "awaiting_cancel_choice" else "reschedule"
+            memory["pending_question"] = None
+            memory["_candidate_ids"] = None
+            if action == "cancel":
+                appt = appointment_service.find_appointment(bot, db, sender, chosen_id)
+                if not appt:
+                    reply = "I couldn't find that appointment — it may have already been cancelled."
+                else:
+                    appointment_service.cancel(db, appt)
+                    reply = f"❌ Your appointment #{appt.id} on {appt.appointment_date} has been cancelled."
+            else:
+                appt = appointment_service.find_appointment(bot, db, sender, chosen_id)
+                if not appt:
+                    reply = "I couldn't find that appointment."
+                else:
+                    memory["appointment_id"] = appt.id
+                    memory["pending_question"] = "awaiting_reschedule_datetime"
+                    reply = f"Sure — what new date and time would you like for appointment #{appt.id}?"
+            memory_store.append_history(memory, "assistant", reply)
+            memory_store.save_memory(db, bot.id, sender, memory)
+            await _send(sender, reply, bot)
+            return
+        # Didn't recognize a valid number — gently re-show the same picker instead of
+        # silently falling through to full re-classification (avoids confusing loops).
+        if num_match:
+            reply = "I couldn't match that to one of the appointments above — could you tap one of the options, or just send its number?"
+            memory_store.append_history(memory, "assistant", reply)
+            memory_store.save_memory(db, bot.id, sender, memory)
+            await _send(sender, reply, bot)
+            return
 
     proc_match = _PROC_BTN_RE.match(text_stripped)
     doc_match = _DOC_BTN_RE.match(text_stripped)
@@ -400,6 +473,8 @@ async def handle_turn(sender: str, text: str, bot, db) -> None:
             reply = f"❌ Your appointment #{appointments[0].id} on {appointments[0].appointment_date} has been cancelled."
         else:
             await _send_appointment_picker(sender, bot, db, appointments, "cancel")
+            memory["pending_question"] = "awaiting_cancel_choice"
+            memory["_candidate_ids"] = [a.id for a in appointments]
             reply = None
 
     elif intent == "appointment_reschedule":
@@ -425,12 +500,12 @@ async def handle_turn(sender: str, text: str, bot, db) -> None:
             reply = f"What new date and time would you like for appointment #{appointments[0].id}?"
         else:
             await _send_appointment_picker(sender, bot, db, appointments, "reschedule")
+            memory["pending_question"] = "awaiting_reschedule_choice"
+            memory["_candidate_ids"] = [a.id for a in appointments]
             reply = None
 
     elif intent in ("treatment_information", "pricing_question", "doctor_information", "clinic_information"):
-        answer = await knowledge_service.answer(text, bot, db)
-        follow_up = await _reconnect_to_pending_request(memory, bot, db)
-        reply = f"{answer}\n\n{follow_up}" if follow_up else answer
+        reply = await knowledge_service.answer(text, bot, db)
 
     elif intent == "complaint":
         log_bot_event(bot.id, "PATIENT_COMPLAINT", text[:300], customer_phone=sender)
@@ -450,11 +525,11 @@ async def handle_turn(sender: str, text: str, bot, db) -> None:
 
     else:  # casual_conversation
         reply = await response_composer.compose(
-            f"Respond naturally and warmly to the patient's message: '{text}'.", memory, bot, db,
+            f"Respond naturally and warmly to the patient's message: '{text}'. "
+            "If there's a pending question we just asked them (see known facts), you may gently "
+            "circle back to it — but only if it fits naturally, don't force it.",
+            memory, bot, db,
         )
-        follow_up = await _reconnect_to_pending_request(memory, bot, db)
-        if follow_up:
-            reply = f"{reply}\n\n{follow_up}"
 
     memory_store.append_history(memory, "assistant", reply or "")
     memory_store.save_memory(db, bot.id, sender, memory)

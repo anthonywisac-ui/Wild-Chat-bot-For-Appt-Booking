@@ -36,6 +36,9 @@ from datetime import datetime as _dt
 # ──────────────────────────────────────────────────────────────────────────
 
 def resolve_department(memory: dict, bot, db) -> str | None:
+    if memory.get("locked_department") in DEPARTMENTS:
+        return memory["locked_department"]  # -aesthetic/-dental shortcut overrides everything
+
     if memory.get("department") in DEPARTMENTS:
         return memory["department"]
 

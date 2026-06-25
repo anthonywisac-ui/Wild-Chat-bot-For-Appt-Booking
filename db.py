@@ -667,6 +667,24 @@ def get_doctor_appointments_on_date(db: Session, bot_id: int, doctor_id: int, ap
         .all()
     )
 
+# ========== Customer Reset & Reports ==========
+
+def reset_customer(db: Session, bot_id: int, phone: str) -> None:
+    """Wipes conversation memory + screening/lead history for one (bot, phone) pair —
+    used by the '-reset' shortcut so testers can simulate a brand-new customer.
+    Does NOT delete past appointments (those are real business records)."""
+    db.query(SessionState).filter(SessionState.bot_id == bot_id, SessionState.sender_number == phone).delete()
+    db.query(PatientProfile).filter(PatientProfile.bot_id == bot_id, PatientProfile.phone == phone).delete()
+    db.query(Lead).filter(Lead.bot_id == bot_id, Lead.phone == phone).delete()
+    db.commit()
+
+def get_report_stats(db: Session, bot_id: int, since: datetime) -> dict:
+    appts = db.query(Appointment).filter(Appointment.bot_id == bot_id, Appointment.created_at >= since).all()
+    revenue = sum((a.consultation_fee or 0.0) for a in appts if a.status in ("Confirmed", "Rescheduled", "Completed"))
+    cancelled = sum(1 for a in appts if a.status == "Cancelled")
+    leads = db.query(Lead).filter(Lead.bot_id == bot_id, Lead.created_at >= since).count()
+    return {"appointments": len(appts), "revenue": revenue, "cancelled": cancelled, "leads": leads}
+
 # ========== Lead CRUD ==========
 
 def get_lead(db: Session, bot_id: int, phone: str) -> Optional["Lead"]:

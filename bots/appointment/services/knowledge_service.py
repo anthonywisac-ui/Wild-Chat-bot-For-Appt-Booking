@@ -12,6 +12,7 @@ import logging
 from db import get_doctors_by_bot, get_procedures_by_bot
 from ai.rag import answer_with_rag
 from bots.appointment.departments import DEPARTMENTS
+from bots.appointment.services.language_policy import LANGUAGE_RULE
 
 logger = logging.getLogger(__name__)
 
@@ -52,7 +53,9 @@ async def answer(question: str, bot, db) -> str:
         "If what they're asking isn't covered by these facts, say so plainly and offer to "
         "help them book an appointment or connect with the clinic directly. "
         "NEVER invent services, products, departments, doctors, or prices that aren't listed here. "
-        "Sound warm and professional, like an experienced clinic receptionist — not robotic.\n\n"
+        "Sound warm and professional, like an experienced clinic receptionist — not robotic. "
+        "Keep it SHORT — 2-3 sentences max, no long paragraphs.\n\n"
+        f"{LANGUAGE_RULE}\n\n"
         f"Known facts:\n{facts}"
     )
 

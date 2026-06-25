@@ -33,17 +33,20 @@ async def interpret_date_or_time(kind: str, text: str, bot, db, context: str = "
       - reply: a natural-language message to send the patient (used when extraction
         isn't confident, or to acknowledge ambiguity), or None
     """
+    from bots.appointment.services.language_policy import LANGUAGE_RULE
+
     system_prompt = (
         "You are a warm, efficient receptionist for a medical clinic, chatting with a patient on WhatsApp. "
         f"You are currently waiting for the patient's preferred appointment {kind}. {context}\n\n"
         f"Read their latest message and respond with ONLY a JSON object:\n"
         f'{{"extracted": "<a short, clear {kind} phrase you can confidently pull from their message, '
         f'e.g. \'next Monday\' or \'10am\', or null if none>", '
-        f'"reply": "<if extracted is null, a short natural reply — answer their question if they asked one, '
+        f'"reply": "<if extracted is null, a short (1 sentence) natural reply — answer their question if they asked one, '
         f"acknowledge what they said, and gently ask again for the {kind}. "
         f'If extracted is NOT null, this can be null too>"}}\n\n'
         "Never be robotic or repeat a canned phrase — sound like a real person texting back. "
-        "If they seem stuck or unsure, offer a couple of concrete example options instead of just re-asking blankly."
+        "If they seem stuck or unsure, offer a couple of concrete example options instead of just re-asking blankly.\n\n"
+        + LANGUAGE_RULE
     )
 
     try:

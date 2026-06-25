@@ -80,6 +80,8 @@ async def analyze_lab_report(report_text: str, doctors: list, bot, db) -> dict:
     if not doctors:
         return {"summary": "", "doctor_id": None, "department": ""}
 
+    from bots.appointment.services.language_policy import LANGUAGE_RULE
+
     catalog = _doctor_catalog_text(doctors)
     system_prompt = (
         f"You are a medical intake assistant for {bot.business_name or bot.name}. "
@@ -87,6 +89,7 @@ async def analyze_lab_report(report_text: str, doctors: list, bot, db) -> dict:
         "friendly sentences (no alarming language, no formal diagnosis — just describe "
         "what stands out). Then recommend the best-matching doctor from the roster below. "
         'Reply with ONLY a JSON object: {"summary": "<plain language summary>", "doctor_id": <int>}.\n\n'
+        f"{LANGUAGE_RULE}\n\n"
         f"Doctor roster:\n{catalog}"
     )
 
