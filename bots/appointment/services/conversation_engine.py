@@ -356,6 +356,7 @@ async def _handle_booking_intent(sender, memory: dict, bot, db) -> str | None:
             "id": f"DOC_{d.id}", "title": f"Dr. {d.name}"[:24],
             "description": f"${d.consultation_fee:.0f} • {(d.bio or 'Specialist')[:50]}",
         } for d in validation["doctor_options"][:10]]
+        await send_image_v2(sender, _image_path("doctor_selection.png"), bot)
         await send_interactive_list(
             sender, "Choose a Doctor", "Which doctor would you prefer?",
             "View Doctors", [{"title": "Doctors", "rows": rows}], bot,
