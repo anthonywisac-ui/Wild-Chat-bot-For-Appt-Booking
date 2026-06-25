@@ -85,6 +85,26 @@ async def send_document_v2(to, file_path, filename, bot: WhatsappBot, caption: s
     provider = MetaProvider(bot)
     return await provider.send_document(to, file_path, filename, caption)
 
+async def send_image_v2(to, file_path, bot: WhatsappBot, caption: str = ""):
+    """
+    Multi-tenant image sender (used for branded welcome/category visuals).
+    Routes to wa-bridge for wwebjs bots, Meta Cloud API (upload + send) otherwise.
+    Silently does nothing if file_path doesn't exist, so a missing brand
+    image never breaks the conversation flow.
+    """
+    import os
+    if not file_path or not os.path.isfile(file_path):
+        return False
+
+    if bot and getattr(bot, "provider", "meta") == "wwebjs":
+        from providers.wwebjs import WwebjsProvider
+        provider = WwebjsProvider(bot)
+        return await provider.send_document(to, file_path, os.path.basename(file_path), caption)
+
+    from providers.meta import MetaProvider
+    provider = MetaProvider(bot)
+    return await provider.send_image(to, file_path, caption)
+
 async def send_interactive_list(to, header_text, body_text, button_text, sections, bot: WhatsappBot):
     """
     Sends a native WhatsApp List Message (Meta) — up to 10 rows per section.

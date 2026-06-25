@@ -94,6 +94,54 @@ class MetaProvider:
             logger.error(f"[MetaProvider] send_document exception: {exc}")
             return False
 
+    async def send_image(self, to: str, file_path: str, caption: str = "") -> bool:
+        """
+        Uploads a local image (PNG/JPG) to Meta's media endpoint, then sends it
+        as a WhatsApp image message. Used for branded welcome/category visuals.
+        """
+        upload_url = f"https://graph.facebook.com/{META_API_VERSION}/{self.phone_id}/media"
+        headers = {"Authorization": f"Bearer {self.token}"}
+        content_type = "image/png" if file_path.lower().endswith(".png") else "image/jpeg"
+
+        try:
+            session = await SharedSession.get_session()
+
+            with open(file_path, "rb") as f:
+                form = aiohttp.FormData()
+                form.add_field("messaging_product", "whatsapp")
+                form.add_field("type", content_type)
+                form.add_field("file", f, filename=os.path.basename(file_path), content_type=content_type)
+
+                async with session.post(upload_url, data=form, headers=headers) as up_resp:
+                    if up_resp.status >= 400:
+                        text = await up_resp.text()
+                        logger.error(f"[MetaProvider] image upload failed {up_resp.status}: {text}")
+                        return False
+                    media_data = await up_resp.json()
+                    media_id = media_data.get("id")
+
+            if not media_id:
+                logger.error("[MetaProvider] image upload returned no id")
+                return False
+
+            send_url = f"https://graph.facebook.com/{META_API_VERSION}/{self.phone_id}/messages"
+            payload = {
+                "messaging_product": "whatsapp",
+                "to": to,
+                "type": "image",
+                "image": {"id": media_id, "caption": caption},
+            }
+            headers_json = {"Authorization": f"Bearer {self.token}", "Content-Type": "application/json"}
+            async with session.post(send_url, json=payload, headers=headers_json) as resp:
+                if resp.status >= 400:
+                    text = await resp.text()
+                    logger.error(f"[MetaProvider] send image failed {resp.status}: {text}")
+                    return False
+                return True
+        except Exception as exc:
+            logger.error(f"[MetaProvider] send_image exception: {exc}")
+            return False
+
     async def download_media(self, media_id: str) -> tuple[bytes, str] | None:
         """
         Downloads an inbound media file (e.g. a lab report PDF) by its media_id.

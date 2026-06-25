@@ -19,6 +19,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import re
 
 from db import (
@@ -28,10 +29,16 @@ from db import (
     get_doctors_by_department,
 )
 from whatsapp_handlers import (
-    send_text_message_v2, send_document_v2,
+    send_text_message_v2, send_document_v2, send_image_v2,
     send_interactive_list, send_interactive_buttons,
 )
 from utils_pdf import generate_appointment_pdf
+
+IMAGES_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "static_images")
+
+
+def _image_path(name: str) -> str:
+    return os.path.join(IMAGES_DIR, name)
 
 from ai.intent import looks_like_question
 from bots.appointment.departments import DEPARTMENTS
@@ -124,6 +131,21 @@ async def _send(sender, text, bot):
     await send_text_message_v2(sender, text, bot)
 
 
+async def _send_welcome_buttons(sender, bot, lead_in: str) -> None:
+    """Sends the branded welcome banner image (if the clinic has uploaded one),
+    followed by the 3-button main menu."""
+    await send_image_v2(sender, _image_path("welcome_banner.png"), bot)
+    await send_interactive_buttons(
+        sender, lead_in,
+        [
+            {"id": QUICK_CONSULT_ID, "title": "Consult with AI ✨"},
+            {"id": QUICK_ENQUIRY_ID, "title": "Treatment Enquiry 💬"},
+            {"id": QUICK_BOOK_ID, "title": "Book Appointment 📅"},
+        ],
+        bot,
+    )
+
+
 async def _send_returning_customer_menu(sender, bot) -> None:
     rows = [
         {"id": RETURN_BOOK_ID, "title": "📝 Book", "description": "Book a new appointment"},
@@ -181,6 +203,7 @@ async def _send_treatment_list_for_department(sender, bot, db, department: str) 
             "description": f"${p.fee_per_session:.0f}/session{sessions}",
         })
     label = DEPARTMENTS.get(department, {}).get("label", department.title())
+    await send_image_v2(sender, _image_path(f"{department}.png"), bot)
     await send_interactive_list(
         sender, f"{label} Treatments", f"Choose a treatment in {label}:",
         "View Treatments", [{"title": "Treatments", "rows": rows}], bot,
@@ -211,6 +234,7 @@ async def _send_treatment_browser(sender, bot, db, memory: dict) -> None:
             "id": f"DEPT_{slug.upper()}", "title": f"{info['emoji']} {info['label']}"[:24],
             "description": info["description"][:72],
         } for slug, info in DEPARTMENTS.items() if slug in enabled]
+        await send_image_v2(sender, _image_path("categories_showcase.png"), bot)
         await send_interactive_list(
             sender, "Choose a Category", "Which category are you interested in?",
             "View Categories", [{"title": "Categories", "rows": rows}], bot,
@@ -487,16 +511,10 @@ async def handle_turn(sender: str, text: str, bot, db) -> None:
     if lowered_early == "-reset":
         from db import reset_customer
         reset_customer(db, bot.id, sender, wipe_appointments=True)
-        await send_interactive_buttons(
-            sender,
+        await _send_welcome_buttons(
+            sender, bot,
             "🔄 All set — starting fresh as a new customer!\n\n"
             f"✨ Welcome to *{bot.business_name or bot.name}*. How can we help you today?",
-            [
-                {"id": QUICK_CONSULT_ID, "title": "Consult with AI ✨"},
-                {"id": QUICK_ENQUIRY_ID, "title": "Treatment Enquiry 💬"},
-                {"id": QUICK_BOOK_ID, "title": "Book Appointment 📅"},
-            ],
-            bot,
         )
         return
 
@@ -539,15 +557,7 @@ async def handle_turn(sender: str, text: str, bot, db) -> None:
         memory["pending_question"] = None
         memory["pending_field"] = None
         memory["awaiting_confirmation"] = False
-        await send_interactive_buttons(
-            sender, f"✨ Welcome back to *{bot.business_name or bot.name}*. How can we help you today?",
-            [
-                {"id": QUICK_CONSULT_ID, "title": "Consult with AI ✨"},
-                {"id": QUICK_ENQUIRY_ID, "title": "Treatment Enquiry 💬"},
-                {"id": QUICK_BOOK_ID, "title": "Book Appointment 📅"},
-            ],
-            bot,
-        )
+        await _send_welcome_buttons(sender, bot, f"✨ Welcome back to *{bot.business_name or bot.name}*. How can we help you today?")
         memory_store.append_history(memory, "assistant", "")
         memory_store.save_memory(db, bot.id, sender, memory)
         return
@@ -1139,15 +1149,7 @@ async def handle_turn(sender: str, text: str, bot, db) -> None:
                 "Greet the patient warmly as a premium aesthetic/dental clinic receptionist. Keep it to one short, welcoming sentence — the next message will show their options.",
                 memory, bot, db,
             )
-            await send_interactive_buttons(
-                sender, lead_in,
-                [
-                    {"id": QUICK_CONSULT_ID, "title": "Consult with AI ✨"},
-                    {"id": QUICK_ENQUIRY_ID, "title": "Treatment Enquiry 💬"},
-                    {"id": QUICK_BOOK_ID, "title": "Book Appointment 📅"},
-                ],
-                bot,
-            )
+            await _send_welcome_buttons(sender, bot, lead_in)
         reply = None
 
     elif intent == "appointment_booking":
