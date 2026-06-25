@@ -28,6 +28,7 @@ _DEFAULT_MEMORY = {
     "fee_estimate": None,
     "appointment_id": None,       # which existing appointment we're cancelling/rescheduling
     "pending_question": None,     # what we last asked, so a short reply ("yes", "evening") makes sense
+    "pending_field": None,        # the exact memory key the NEXT message should fill in directly (no AI re-classification)
     "last_intent": None,
     "history": [],                # [{"role": "user"|"assistant", "text": str}, ...]
     # Medical screening / CRM intake — once known for a patient (via PatientProfile),
@@ -119,7 +120,7 @@ def reset_booking_fields(memory: dict) -> dict:
     for key in (
         "concern", "department", "treatment", "procedure_id", "doctor_preference",
         "doctor_id", "date_text", "date_iso", "time_text", "time_24h",
-        "fee_estimate", "appointment_id", "pending_question",
+        "fee_estimate", "appointment_id", "pending_question", "pending_field",
     ):
         memory[key] = None
     memory["upsell_offered"] = False

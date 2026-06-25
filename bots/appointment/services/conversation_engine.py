@@ -28,6 +28,8 @@ from whatsapp_handlers import (
 )
 from utils_pdf import generate_appointment_pdf
 
+from ai.intent import looks_like_question
+
 from bots.appointment.services import conversation_memory as memory_store
 from bots.appointment.services import intent_classifier
 from bots.appointment.services import appointment_service
@@ -38,6 +40,16 @@ logger = logging.getLogger(__name__)
 
 _AFFIRMATIVE_RE = re.compile(r"^(yes|yep|yeah|confirm|sure|ok(ay)?|sounds good|go ahead|book it)\b", re.IGNORECASE)
 _NEGATIVE_RE = re.compile(r"^(no|nope|not yet|cancel|wait|hold on|change)\b", re.IGNORECASE)
+_CASUAL_GREETING_RE = re.compile(
+    r"^(hi+|hello+|hey+|salam\w*|assalam\w*|yo|ok(ay)?|hmm+|good\s*(morning|afternoon|evening))[\s!.?]*$",
+    re.IGNORECASE,
+)
+# Fields whose answer is just stored verbatim — no parsing needed (date/time get
+# their own normalization elsewhere).
+_DIRECT_CAPTURE_FIELDS = {
+    "treatment", "age", "gender", "city", "allergies", "medical_conditions",
+    "pregnancy_status", "current_medications", "previous_treatments", "patient_name",
+}
 _CANCEL_BTN_RE = re.compile(r"^CANCEL_(\d+)$")
 _RESCHED_BTN_RE = re.compile(r"^RESCHED_(\d+)$")
 _PROC_BTN_RE = re.compile(r"^PROC_(\d+)$")
@@ -79,6 +91,7 @@ async def _send_appointment_picker(sender, bot, db, appointments, action: str) -
 
 
 async def _handle_booking_intent(sender, memory: dict, bot, db) -> str | None:
+    memory["pending_field"] = None  # cleared here, re-set below only if we end up asking for one
     validation = await appointment_service.resolve_and_validate(memory, bot, db)
 
     if validation["procedure_options"]:
@@ -134,8 +147,9 @@ async def _handle_booking_intent(sender, memory: dict, bot, db) -> str | None:
 
     if validation["missing"]:
         next_field = validation["missing"][0]
-        directive = f"Ask the patient for their {next_field.replace('_', ' ')}, naturally, using everything we already know."
+        directive = f"Ask the patient for their {next_field.replace('_', ' ')}, naturally, using everything we already know. Ask only this one thing."
         memory["pending_question"] = directive
+        memory["pending_field"] = next_field
         return await response_composer.compose(directive, memory, bot, db)
 
     # Everything needed is known — show the summary and ask to confirm via real buttons.
@@ -400,6 +414,37 @@ async def handle_turn(sender: str, text: str, bot, db) -> None:
         memory_store.save_memory(db, bot.id, sender, memory)
         await _send(sender, reply, bot)
         return
+
+    # ── Answer to a specific question we just asked — captured directly, never
+    # re-classified. This is what stops a small/fast model from losing track of
+    # terse answers ("Ni", "20", "Aadmi") and re-asking the same thing forever. ──
+    if memory.get("pending_field"):
+        if _CASUAL_GREETING_RE.match(text_stripped):
+            reply = await response_composer.compose(
+                memory.get("pending_question") or "Greet warmly and ask your pending question again.",
+                memory, bot, db,
+            )
+            memory_store.append_history(memory, "assistant", reply)
+            memory_store.save_memory(db, bot.id, sender, memory)
+            await _send(sender, reply, bot)
+            return
+        if not looks_like_question(text_stripped):
+            field = memory.pop("pending_field")
+            memory["pending_question"] = None
+            if field == "date":
+                memory["date_text"] = text_stripped
+            elif field == "time":
+                memory["time_text"] = text_stripped
+            elif field in _DIRECT_CAPTURE_FIELDS:
+                memory[field] = text_stripped
+            reply = await _handle_booking_intent(sender, memory, bot, db)
+            memory_store.append_history(memory, "assistant", reply or "")
+            memory_store.save_memory(db, bot.id, sender, memory)
+            if reply:
+                await _send(sender, reply, bot)
+            return
+        # Looks like a genuine question — fall through to full classification so
+        # it gets answered properly; pending_field stays set for next time.
 
     # ── A pending booking confirmation takes priority over re-classifying ──
     if memory.get("awaiting_confirmation"):

@@ -50,6 +50,16 @@ The clinic actually offers:
 Classify the LATEST patient message into exactly one intent from this list:
 {intent_types}
 
+CRITICAL — do not confuse these two:
+- "complaint": the patient is unhappy, frustrated, or criticizing the clinic/bot/service
+  (e.g. "this is taking forever", "you're not understanding me", "this is wrong",
+  "I'm not happy with this", sarcasm, venting). This is BY FAR the more common case.
+- "emergency": the patient is describing an ACTUAL medical/health crisis happening to
+  them right now (e.g. severe pain, can't breathe, heavy bleeding, allergic reaction,
+  fainting, chest pain). Only use "emergency" when a real medical symptom or danger is
+  described — frustration with the conversation itself is ALWAYS "complaint", never
+  "emergency", no matter how angry the wording is.
+
 Extract any entities mentioned (in THIS message or implied by context) — only include fields with real values:
 - patient_name
 - concern (their symptom/reason, in their own words)

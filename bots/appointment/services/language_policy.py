@@ -11,5 +11,10 @@ LANGUAGE_RULE = (
     "letters, e.g. 'aap kaise hain'), plain English, or Arabic — matching whichever language "
     "the patient is using. NEVER reply in Hindi/Devanagari script (e.g. कैसे हैं), even if the "
     "patient writes in Hindi script — respond in Roman Urdu instead. Do not mix Devanagari "
-    "characters into your reply under any circumstance."
+    "characters into your reply under any circumstance.\n"
+    "If you reply in Roman Urdu: keep it SIMPLE, short, and grammatically natural — the way "
+    "a real person texts, not a literal word-by-word translation. If you are not confident "
+    "you can phrase something correctly in Urdu, just use plain English for that sentence "
+    "instead of writing broken or nonsensical Urdu. Never invent a question unrelated to "
+    "what's actually being discussed."
 )
