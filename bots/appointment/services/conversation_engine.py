@@ -70,12 +70,24 @@ _QUICKTIME_RE = re.compile(r"^QUICKTIME_(.+)$")
 # "Book Appointment" mode must never drift into open-ended AI consultation.
 _FIELD_QUESTIONS = {
     "age": "What's your age?",
-    "gender": "What's your gender? (male/female)",
-    "allergies": "Do you have any allergies? (or reply 'none')",
-    "medical_conditions": "Any medical conditions we should know about? (or reply 'none')",
-    "pregnancy_status": "Are you currently pregnant or breastfeeding? (or reply 'no')",
-    "current_medications": "Are you currently taking any medications? (or reply 'none')",
+    "gender": "What's your gender?",
+    "allergies": "Do you have any allergies?",
+    "medical_conditions": "Any medical conditions we should know about?",
+    "pregnancy_status": "Are you currently pregnant or breastfeeding?",
+    "current_medications": "Are you currently taking any medications?",
 }
+
+# Binary/choice screening fields get real buttons instead of free text.
+_SCREEN_OPTIONS = {
+    "gender": [("male", "Male"), ("female", "Female")],
+    "allergies": [("none", "None"), ("yes", "Yes")],
+    "medical_conditions": [("none", "None"), ("yes", "Yes")],
+    "pregnancy_status": [("no", "No"), ("yes", "Yes")],
+    "current_medications": [("none", "None"), ("yes", "Yes")],
+}
+# Tapping "Yes" on these asks a quick free-text follow-up to specify what.
+_SCREEN_NEEDS_DETAIL = {"allergies", "medical_conditions", "current_medications"}
+_SCREEN_BTN_RE = re.compile(r"^SCREEN_(\w+)_(\w+)$")
 
 BOOKING_CONFIRM_ID = "BOOKING_CONFIRM"
 BOOKING_CHANGE_ID = "BOOKING_CHANGE"
@@ -142,6 +154,8 @@ async def _send_treatment_browser(sender, bot, db, memory: dict) -> None:
     """Entry point for both Enquiry and Booking modes — Department List (if needed)
     then Treatment List. Never asks an open question."""
     enabled = get_enabled_departments_for_bot(db, bot.id)
+    if memory.get("locked_group") == "aesthetic":
+        enabled = [d for d in enabled if d != "dental"]
     if not enabled:
         await _send(sender, "We're still setting up our treatment list — please contact the clinic directly.", bot)
         memory["pending_question"] = None
@@ -149,6 +163,8 @@ async def _send_treatment_browser(sender, bot, db, memory: dict) -> None:
         return
 
     department = memory.get("locked_department") or memory.get("department")
+    if department and memory.get("locked_group") == "aesthetic" and department == "dental":
+        department = None  # ignore a stale dental selection while aesthetic-only is locked
     if not department and len(enabled) == 1:
         department = enabled[0]
 
@@ -214,6 +230,14 @@ async def _send_quick_time_picker(sender, bot, memory: dict) -> None:
     await send_interactive_buttons(sender, "What time works for you?", buttons, bot)
     memory["pending_field"] = "time"
     memory["pending_question"] = "awaiting_time_pick"
+
+
+async def _send_screening_buttons(sender, bot, memory: dict, field: str) -> None:
+    options = _SCREEN_OPTIONS[field]
+    buttons = [{"id": f"SCREEN_{field}_{val}", "title": label} for val, label in options]
+    await send_interactive_buttons(sender, _FIELD_QUESTIONS[field], buttons, bot)
+    memory["pending_field"] = field
+    memory["pending_question"] = f"awaiting_screen_{field}"
 
 
 async def _handle_booking_intent(sender, memory: dict, bot, db) -> str | None:
@@ -285,6 +309,9 @@ async def _handle_booking_intent(sender, memory: dict, bot, db) -> str | None:
             if next_field == "time":
                 await _send_quick_time_picker(sender, bot, memory)
                 return None
+            if next_field in _SCREEN_OPTIONS:
+                await _send_screening_buttons(sender, bot, memory, next_field)
+                return None
             memory["pending_field"] = next_field
             memory["pending_question"] = _FIELD_QUESTIONS.get(next_field, f"Could you share your {next_field.replace('_', ' ')}?")
             return memory["pending_question"]
@@ -297,10 +324,13 @@ async def _handle_booking_intent(sender, memory: dict, bot, db) -> str | None:
     # Everything needed is known — show the summary and ask to confirm via real buttons.
     memory["awaiting_confirmation"] = True
     summary = appointment_service.booking_summary_text(memory, bot, db)
-    lead_in = await response_composer.compose(
-        "Let the patient know you have everything you need and you're about to confirm their booking. Keep it to one short sentence.",
-        memory, bot, db,
-    )
+    if memory.get("mode") == "booking":
+        lead_in = "Here's your appointment summary — please confirm to finalize your booking."
+    else:
+        lead_in = await response_composer.compose(
+            "Let the patient know you have everything you need and you're about to confirm their booking. Keep it to one short sentence.",
+            memory, bot, db,
+        )
     await send_interactive_buttons(
         sender, f"{lead_in}\n\n📝 *{summary}*",
         [{"id": BOOKING_CONFIRM_ID, "title": "✅ Confirm"}, {"id": BOOKING_CHANGE_ID, "title": "✏️ Change something"}],
@@ -350,7 +380,8 @@ async def handle_turn(sender: str, text: str, bot, db) -> None:
 
     if lowered_early in ("-aesthetic", "-ashtetic"):
         memory = memory_store.load_memory(db, bot.id, sender)
-        memory["locked_department"] = "aesthetic"
+        memory["locked_group"] = "aesthetic"  # any non-dental category (skin/hair/laser/injectables/body)
+        memory["locked_department"] = None
         reply = "Got it — we'll keep this chat focused on Aesthetic & Cosmetic treatments only. How can I help?"
         memory_store.append_history(memory, "assistant", reply)
         memory_store.save_memory(db, bot.id, sender, memory)
@@ -360,6 +391,7 @@ async def handle_turn(sender: str, text: str, bot, db) -> None:
     if lowered_early == "-dental":
         memory = memory_store.load_memory(db, bot.id, sender)
         memory["locked_department"] = "dental"
+        memory["locked_group"] = None
         reply = "Got it — we'll keep this chat focused on Dental treatments only. How can I help?"
         memory_store.append_history(memory, "assistant", reply)
         memory_store.save_memory(db, bot.id, sender, memory)
@@ -470,6 +502,25 @@ async def handle_turn(sender: str, text: str, bot, db) -> None:
         memory["pending_field"] = None
         memory["pending_question"] = None
         reply = await _handle_booking_intent(sender, memory, bot, db)
+        memory_store.append_history(memory, "assistant", reply or "")
+        memory_store.save_memory(db, bot.id, sender, memory)
+        if reply:
+            await _send(sender, reply, bot)
+        return
+
+    # ── Screening field Yes/No/Male/Female button taps ──────────────────────
+    screen_match = _SCREEN_BTN_RE.match(text_stripped)
+    if screen_match and screen_match.group(1) in _SCREEN_OPTIONS and memory.get("pending_field") == screen_match.group(1):
+        field, value = screen_match.group(1), screen_match.group(2)
+        if value == "yes" and field in _SCREEN_NEEDS_DETAIL:
+            memory["pending_question"] = f"Please specify your {field.replace('_', ' ')}."
+            reply = memory["pending_question"]
+        else:
+            label_map = dict(_SCREEN_OPTIONS[field])
+            memory[field] = label_map.get(value, value)
+            memory["pending_field"] = None
+            memory["pending_question"] = None
+            reply = await _handle_booking_intent(sender, memory, bot, db)
         memory_store.append_history(memory, "assistant", reply or "")
         memory_store.save_memory(db, bot.id, sender, memory)
         if reply:
@@ -658,6 +709,39 @@ async def handle_turn(sender: str, text: str, bot, db) -> None:
             return
         # Looks like a genuine question — fall through to full classification so
         # it gets answered properly; pending_field stays set for next time.
+
+    # ── Enquiry/Booking modes never drift into free-text AI consultation: if a
+    # structured button prompt is pending and the reply doesn't match it, just
+    # re-show the same buttons/list instead of classifying the message. ──────
+    pending_q = memory.get("pending_question") or ""
+    structured_states = {
+        "awaiting_department_choice", "awaiting_procedure_choice", "awaiting_doctor_choice",
+        "awaiting_enquiry_action", "awaiting_upsell_choice", "awaiting_date_pick", "awaiting_time_pick",
+    }
+    if memory.get("mode") in ("enquiry", "booking") and (pending_q in structured_states or pending_q.startswith("awaiting_screen_")):
+        if pending_q == "awaiting_department_choice":
+            await _send_treatment_browser(sender, bot, db, memory)
+        elif pending_q == "awaiting_procedure_choice":
+            await _send_treatment_list_for_department(sender, bot, db, memory.get("department"))
+        elif pending_q == "awaiting_doctor_choice":
+            reply = await _handle_booking_intent(sender, memory, bot, db)
+            if reply:
+                await _send(sender, reply, bot)
+        elif pending_q == "awaiting_enquiry_action":
+            await _send(sender, "Please tap *Book This* or *Browse More* above.", bot)
+        elif pending_q == "awaiting_upsell_choice":
+            await _send(sender, "Please tap one of the options above, or *No thanks*.", bot)
+        elif pending_q == "awaiting_date_pick":
+            await _send_quick_date_picker(sender, bot, memory)
+        elif pending_q == "awaiting_time_pick":
+            await _send_quick_time_picker(sender, bot, memory)
+        elif pending_q.startswith("awaiting_screen_"):
+            field = pending_q.replace("awaiting_screen_", "")
+            if field in _SCREEN_OPTIONS:
+                await _send_screening_buttons(sender, bot, memory, field)
+        memory_store.append_history(memory, "assistant", "")
+        memory_store.save_memory(db, bot.id, sender, memory)
+        return
 
     # ── A pending booking confirmation takes priority over re-classifying ──
     if memory.get("awaiting_confirmation"):

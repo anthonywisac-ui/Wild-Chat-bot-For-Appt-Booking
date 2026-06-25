@@ -1,20 +1,15 @@
 # bots/appointment/services/language_policy.py
 #
 # Shared language constraint injected into every AI prompt that produces
-# patient-facing text. Without this, the model sometimes defaults to
-# Devanagari Hindi script when asked for "Urdu" — which this clinic's
-# patients can't read comfortably. Roman Urdu (Urdu words spelled in
-# English/Latin letters) is what's actually expected here.
+# patient-facing text. The small/fast model used here generated inconsistent,
+# sometimes broken Roman Urdu / Hindi script even when the patient was
+# writing in plain English — unacceptable for a professional clinic. The
+# clinic has decided: English only, full stop, no exceptions.
 
 LANGUAGE_RULE = (
-    "LANGUAGE RULE: Reply only in Roman Urdu (Urdu language written using English/Latin "
-    "letters, e.g. 'aap kaise hain'), plain English, or Arabic — matching whichever language "
-    "the patient is using. NEVER reply in Hindi/Devanagari script (e.g. कैसे हैं), even if the "
-    "patient writes in Hindi script — respond in Roman Urdu instead. Do not mix Devanagari "
-    "characters into your reply under any circumstance.\n"
-    "If you reply in Roman Urdu: keep it SIMPLE, short, and grammatically natural — the way "
-    "a real person texts, not a literal word-by-word translation. If you are not confident "
-    "you can phrase something correctly in Urdu, just use plain English for that sentence "
-    "instead of writing broken or nonsensical Urdu. Never invent a question unrelated to "
-    "what's actually being discussed."
+    "LANGUAGE RULE: Respond ONLY in professional, clear English. "
+    "NEVER use Urdu, Hindi, Roman Urdu, Arabic, or any mixed-language phrasing, "
+    "even if the patient writes in another language or script. "
+    "If the patient writes in Urdu/Hindi/Arabic, politely respond in English. "
+    "All buttons, lists, confirmations, and messages must be English only."
 )

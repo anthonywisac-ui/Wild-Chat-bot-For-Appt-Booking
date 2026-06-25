@@ -294,8 +294,9 @@ def add_doctor(
     bot = db.query(WhatsappBot).filter(WhatsappBot.id == bot_id).first()
     if not bot:
         raise HTTPException(404, "Bot not found")
-    if data.department not in ("dental", "aesthetic"):
-        raise HTTPException(400, "department must be 'dental' or 'aesthetic'")
+    from bots.appointment.departments import DEPARTMENTS
+    if data.department not in DEPARTMENTS:
+        raise HTTPException(400, f"department must be one of: {', '.join(DEPARTMENTS.keys())}")
 
     doc = create_doctor(
         db, bot_id=bot_id, department=data.department, name=data.name, bio=data.bio,
@@ -384,8 +385,9 @@ def add_procedure(
     bot = db.query(WhatsappBot).filter(WhatsappBot.id == bot_id).first()
     if not bot:
         raise HTTPException(404, "Bot not found")
-    if data.department not in ("dental", "aesthetic"):
-        raise HTTPException(400, "department must be 'dental' or 'aesthetic'")
+    from bots.appointment.departments import DEPARTMENTS
+    if data.department not in DEPARTMENTS:
+        raise HTTPException(400, f"department must be one of: {', '.join(DEPARTMENTS.keys())}")
 
     proc = create_procedure(
         db, bot_id=bot_id, department=data.department, name=data.name,
@@ -438,6 +440,36 @@ def remove_procedure(
     delete_procedure(db, procedure)
     _resync_clinic_profile(bot_id, db)
     return {"message": f"Procedure #{procedure_id} removed"}
+
+
+@router.post("/bots/{bot_id}/procedures/seed-defaults",
+             summary="Bulk-load the default 6-category treatment catalog (skips treatments that already exist by name)")
+def seed_default_procedures(
+    bot_id: int,
+    db: Session = Depends(get_db),
+    current_admin: User = Depends(get_current_admin),
+):
+    bot = db.query(WhatsappBot).filter(WhatsappBot.id == bot_id).first()
+    if not bot:
+        raise HTTPException(404, "Bot not found")
+
+    from bots.appointment.treatment_catalog import DEFAULT_TREATMENTS
+    existing_names = {p.name for p in get_procedures_by_bot(db, bot_id, active_only=False)}
+
+    created = []
+    for t in DEFAULT_TREATMENTS:
+        if t["name"] in existing_names:
+            continue
+        create_procedure(
+            db, bot_id=bot_id, department=t["department"], name=t["name"],
+            sessions_required=t["sessions_required"], fee_per_session=t["fee_per_session"],
+            description=t["description"], upsell_with=t["upsell_with"],
+        )
+        created.append(t["name"])
+
+    if created:
+        _resync_clinic_profile(bot_id, db)
+    return {"message": f"{len(created)} treatment(s) added", "created": created, "skipped_existing": len(DEFAULT_TREATMENTS) - len(created)}
 
 
 # ============================================================

@@ -50,7 +50,8 @@ _DEFAULT_MEMORY = {
     "lead_quality": None,          # "low" | "medium" | "high"
     "buying_intention": None,      # short free-text note from the AI's read of the conversation
     "upsell_offered": False,       # whether we've already shown the upsell offer for this booking
-    "locked_department": None,     # set via -aesthetic/-dental shortcut — overrides all department inference
+    "locked_department": None,     # set via -dental shortcut — overrides all department inference
+    "locked_group": None,           # set via -aesthetic shortcut — restricts category browser to non-dental
     "mode": None,                  # "consult" | "enquiry" | "booking" — set by which welcome button was tapped
 }
 

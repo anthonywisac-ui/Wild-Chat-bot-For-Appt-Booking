@@ -1,0 +1,126 @@
+# bots/appointment/treatment_catalog.py
+#
+# Default treatment catalog for a premium Aesthetic & Dental clinic — 6
+# categories, each treatment with session count, per-session fee, and 2
+# admin-curated upsells (matched by name within the same category). Loaded
+# via the CMS "seed-defaults" endpoint so a new clinic bot starts with a
+# real, usable treatment list instead of an empty one.
+#
+# Fees are in the same currency unit used elsewhere in this codebase ($ sign
+# in messages/PDFs) — adjust per-clinic via the CMS after seeding if needed.
+
+DEFAULT_TREATMENTS = [
+    # ── Skin ──────────────────────────────────────────────────────────────
+    {"department": "skin", "name": "HydraFacial", "sessions_required": 1, "fee_per_session": 25000,
+     "description": "Deep cleansing, exfoliation, and hydration facial for an instant glow.",
+     "upsell_with": ["Skin Brightening", "Chemical Peel"]},
+    {"department": "skin", "name": "Chemical Peel", "sessions_required": 4, "fee_per_session": 15000,
+     "description": "Exfoliating peel to improve skin texture, tone, and pigmentation.",
+     "upsell_with": ["Microneedling", "Skin Brightening"]},
+    {"department": "skin", "name": "Microneedling", "sessions_required": 4, "fee_per_session": 18000,
+     "description": "Collagen-induction therapy for acne scars, pores, and texture.",
+     "upsell_with": ["PRP Skin Rejuvenation", "Chemical Peel"]},
+    {"department": "skin", "name": "Microneedling + PRP", "sessions_required": 4, "fee_per_session": 35000,
+     "description": "Microneedling combined with PRP for enhanced skin rejuvenation results.",
+     "upsell_with": ["Chemical Peel", "Skin Brightening"]},
+    {"department": "skin", "name": "PRP Skin Rejuvenation", "sessions_required": 3, "fee_per_session": 30000,
+     "description": "Platelet-rich plasma therapy for natural skin rejuvenation and glow.",
+     "upsell_with": ["Microneedling", "HydraFacial"]},
+    {"department": "skin", "name": "Acne Treatment", "sessions_required": 4, "fee_per_session": 12000,
+     "description": "Targeted treatment plan for active acne and breakouts.",
+     "upsell_with": ["Chemical Peel", "Pigmentation Treatment"]},
+    {"department": "skin", "name": "Pigmentation Treatment", "sessions_required": 4, "fee_per_session": 15000,
+     "description": "Reduces dark spots, melasma, and uneven skin tone.",
+     "upsell_with": ["Chemical Peel", "Skin Brightening"]},
+    {"department": "skin", "name": "Skin Brightening", "sessions_required": 4, "fee_per_session": 12000,
+     "description": "Brightening treatment for dull, tired-looking skin.",
+     "upsell_with": ["HydraFacial", "Chemical Peel"]},
+
+    # ── Hair ──────────────────────────────────────────────────────────────
+    {"department": "hair", "name": "PRP Hair Therapy", "sessions_required": 4, "fee_per_session": 25000,
+     "description": "Platelet-rich plasma injections to stimulate hair growth and reduce hair fall.",
+     "upsell_with": ["Scalp Analysis", "Mesotherapy"]},
+    {"department": "hair", "name": "Hair Growth Therapy", "sessions_required": 6, "fee_per_session": 15000,
+     "description": "Comprehensive hair growth program for thinning hair.",
+     "upsell_with": ["Scalp Analysis", "PRP Hair Therapy"]},
+    {"department": "hair", "name": "Mesotherapy", "sessions_required": 4, "fee_per_session": 20000,
+     "description": "Vitamin and nutrient injections directly into the scalp for hair health.",
+     "upsell_with": ["PRP Hair Therapy", "Scalp Analysis"]},
+    {"department": "hair", "name": "Scalp Analysis", "sessions_required": 1, "fee_per_session": 3000,
+     "description": "Detailed scalp and hair follicle assessment to diagnose hair concerns.",
+     "upsell_with": ["PRP Hair Therapy", "Hair Growth Therapy"]},
+
+    # ── Laser ─────────────────────────────────────────────────────────────
+    {"department": "laser", "name": "Laser Hair Removal", "sessions_required": 8, "fee_per_session": 10000,
+     "description": "Long-term hair reduction using medical-grade laser technology.",
+     "upsell_with": ["Skin Brightening", "HydraFacial"]},
+    {"department": "laser", "name": "Pigmentation Laser", "sessions_required": 4, "fee_per_session": 20000,
+     "description": "Laser treatment targeting dark spots and uneven pigmentation.",
+     "upsell_with": ["Skin Brightening", "Chemical Peel"]},
+    {"department": "laser", "name": "Acne Scar Laser", "sessions_required": 4, "fee_per_session": 25000,
+     "description": "Laser resurfacing to reduce the appearance of acne scarring.",
+     "upsell_with": ["Microneedling", "PRP Skin Rejuvenation"]},
+    {"department": "laser", "name": "Carbon Laser Facial", "sessions_required": 1, "fee_per_session": 18000,
+     "description": "Carbon peel laser facial for pore refinement and instant glow.",
+     "upsell_with": ["HydraFacial", "Skin Brightening"]},
+    {"department": "laser", "name": "Laser Skin Resurfacing", "sessions_required": 4, "fee_per_session": 40000,
+     "description": "Fractional laser resurfacing for scars, wrinkles, and skin tightening.",
+     "upsell_with": ["PRP Skin Rejuvenation", "Skin Brightening"]},
+
+    # ── Injectables ───────────────────────────────────────────────────────
+    {"department": "injectables", "name": "Botox", "sessions_required": 1, "fee_per_session": 60000,
+     "description": "Reduces fine lines and wrinkles for a smoother, more youthful look.",
+     "upsell_with": ["PRP Skin Rejuvenation", "Lip Fillers"]},
+    {"department": "injectables", "name": "Lip Fillers", "sessions_required": 1, "fee_per_session": 45000,
+     "description": "Adds volume and shape to the lips using dermal fillers.",
+     "upsell_with": ["Cheek Fillers", "Botox"]},
+    {"department": "injectables", "name": "Cheek Fillers", "sessions_required": 1, "fee_per_session": 55000,
+     "description": "Restores volume and contour to the cheeks.",
+     "upsell_with": ["Jawline Fillers", "Botox"]},
+    {"department": "injectables", "name": "Jawline Fillers", "sessions_required": 1, "fee_per_session": 65000,
+     "description": "Defines and sharpens the jawline contour.",
+     "upsell_with": ["Cheek Fillers", "Botox"]},
+    {"department": "injectables", "name": "Under Eye Fillers", "sessions_required": 1, "fee_per_session": 40000,
+     "description": "Reduces hollowness and dark circles under the eyes.",
+     "upsell_with": ["Botox", "Cheek Fillers"]},
+
+    # ── Body ──────────────────────────────────────────────────────────────
+    {"department": "body", "name": "Body Contouring", "sessions_required": 6, "fee_per_session": 25000,
+     "description": "Non-invasive body shaping to reduce stubborn fat areas.",
+     "upsell_with": ["RF Tightening", "Cellulite Reduction"]},
+    {"department": "body", "name": "Fat Dissolving Injections", "sessions_required": 4, "fee_per_session": 30000,
+     "description": "Injectable treatment to break down localized fat deposits (e.g. double chin).",
+     "upsell_with": ["Body Contouring", "RF Tightening"]},
+    {"department": "body", "name": "HIFU Tightening", "sessions_required": 3, "fee_per_session": 35000,
+     "description": "High-intensity focused ultrasound for non-surgical skin tightening.",
+     "upsell_with": ["RF Tightening", "Body Contouring"]},
+    {"department": "body", "name": "RF Tightening", "sessions_required": 6, "fee_per_session": 20000,
+     "description": "Radiofrequency treatment to tighten loose or sagging skin.",
+     "upsell_with": ["Body Contouring", "Cellulite Reduction"]},
+    {"department": "body", "name": "Cellulite Reduction", "sessions_required": 6, "fee_per_session": 18000,
+     "description": "Targeted treatment to smooth the appearance of cellulite.",
+     "upsell_with": ["Body Contouring", "RF Tightening"]},
+
+    # ── Dental ────────────────────────────────────────────────────────────
+    {"department": "dental", "name": "Teeth Whitening", "sessions_required": 1, "fee_per_session": 8000,
+     "description": "Professional in-clinic whitening for a brighter smile.",
+     "upsell_with": ["Scaling & Polishing", "Smile Design"]},
+    {"department": "dental", "name": "Scaling & Polishing", "sessions_required": 1, "fee_per_session": 2000,
+     "description": "Routine cleaning to remove plaque and tartar buildup.",
+     "upsell_with": ["Teeth Whitening", "Dental Veneers"]},
+    {"department": "dental", "name": "Dental Veneers", "sessions_required": 1, "fee_per_session": 25000,
+     "description": "Custom veneers to improve the shape, color, and alignment of teeth.",
+     "upsell_with": ["Teeth Whitening", "Smile Design"]},
+    {"department": "dental", "name": "Dental Crowns", "sessions_required": 1, "fee_per_session": 20000,
+     "description": "Caps to restore the shape, size, and strength of damaged teeth.",
+     "upsell_with": ["Root Canal Treatment", "Dental Implants"]},
+    {"department": "dental", "name": "Root Canal Treatment", "sessions_required": 2, "fee_per_session": 15000,
+     "description": "Treatment to save a badly decayed or infected tooth.",
+     "upsell_with": ["Dental Crowns", "Scaling & Polishing"]},
+    {"department": "dental", "name": "Dental Implants", "sessions_required": 1, "fee_per_session": 60000,
+     "description": "Permanent tooth replacement anchored into the jawbone.",
+     "upsell_with": ["Dental Crowns", "Smile Design"]},
+    {"department": "dental", "name": "Smile Design", "sessions_required": 1, "fee_per_session": 80000,
+     "description": "Comprehensive smile makeover combining multiple cosmetic dental treatments.",
+     "upsell_with": ["Dental Veneers", "Teeth Whitening"]},
+]

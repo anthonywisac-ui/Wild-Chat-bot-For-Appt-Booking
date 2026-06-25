@@ -63,7 +63,7 @@ CRITICAL — do not confuse these two:
 Extract any entities mentioned (in THIS message or implied by context) — only include fields with real values:
 - patient_name
 - concern (their symptom/reason, in their own words)
-- department ("dental" or "aesthetic" — infer from treatment if not stated directly)
+- department (one of: "skin", "hair", "laser", "injectables", "body", "dental" — infer from treatment if not stated directly)
 - treatment (procedure name, in their own words)
 - doctor_preference (gender, name, or any preference mentioned)
 - date (their phrasing, e.g. "tomorrow", "next Friday")

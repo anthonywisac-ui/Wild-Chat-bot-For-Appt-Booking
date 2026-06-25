@@ -218,10 +218,11 @@ def save_patient_profile(memory: dict, bot, db, sender: str) -> None:
 
 
 def _required_screening_fields(department: str | None) -> list[str]:
-    """Core screening for every booking, plus aesthetic-specific questions
-    (pregnancy/medications matter most for Botox/fillers/injectables)."""
+    """Core screening for every booking, plus pregnancy/medication questions for
+    anything cosmetic/medical (skin, hair, laser, injectables, body) — not needed
+    for routine dental visits."""
     fields = ["age", "gender", "allergies", "medical_conditions"]
-    if department == "aesthetic":
+    if department and department != "dental":
         fields += ["pregnancy_status", "current_medications"]
     return fields
 
@@ -269,7 +270,13 @@ async def resolve_and_validate(memory: dict, bot, db) -> dict:
         return {"missing": [], "blocking_error": None, "procedure_options": [], "doctor_options": doctor_options}
 
     missing = []
-    if not memory.get("department") and not memory.get("treatment") and not memory.get("concern"):
+    if memory.get("mode") == "booking":
+        # Mode 3 always walks through the explicit Treatment List step — a vague
+        # concern mentioned earlier (e.g. in Consult mode) is not enough; without a
+        # real procedure_id there's no fee, no sessions, nothing to confirm.
+        if not memory.get("procedure_id"):
+            missing.append("treatment")
+    elif not memory.get("department") and not memory.get("treatment") and not memory.get("concern"):
         missing.append("treatment")
 
     for field in _required_screening_fields(memory.get("department")):
