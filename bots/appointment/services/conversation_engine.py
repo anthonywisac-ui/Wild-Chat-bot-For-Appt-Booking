@@ -23,7 +23,7 @@ import re
 
 from db import (
     get_doctors_by_bot, get_procedures_by_bot, get_doctor_by_id, get_procedure_by_id,
-    get_procedures_by_department, get_enabled_departments_for_bot, log_bot_event,
+    get_procedures_by_department, get_departments_with_procedures, log_bot_event,
 )
 from whatsapp_handlers import (
     send_text_message_v2, send_document_v2,
@@ -153,7 +153,7 @@ async def _send_treatment_list_for_department(sender, bot, db, department: str) 
 async def _send_treatment_browser(sender, bot, db, memory: dict) -> None:
     """Entry point for both Enquiry and Booking modes — Department List (if needed)
     then Treatment List. Never asks an open question."""
-    enabled = get_enabled_departments_for_bot(db, bot.id)
+    enabled = get_departments_with_procedures(db, bot.id)
     if memory.get("locked_group") == "aesthetic":
         enabled = [d for d in enabled if d != "dental"]
     if not enabled:
@@ -378,23 +378,103 @@ async def handle_turn(sender: str, text: str, bot, db) -> None:
         )
         return
 
-    if lowered_early in ("-aesthetic", "-ashtetic"):
+    if lowered_early in ("-aesthetic", "-ashtetic", "-esthetic", "-easthetic", "-skin", "-cosmetic", "-beauty"):
         memory = memory_store.load_memory(db, bot.id, sender)
         memory["locked_group"] = "aesthetic"  # any non-dental category (skin/hair/laser/injectables/body)
         memory["locked_department"] = None
-        reply = "Got it — we'll keep this chat focused on Aesthetic & Cosmetic treatments only. How can I help?"
-        memory_store.append_history(memory, "assistant", reply)
+        memory["department"] = None
+        memory["pending_question"] = None
+        memory["pending_field"] = None
+        if memory.get("mode") in ("enquiry", "booking"):
+            await _send(sender, "Got it — switching to Aesthetic & Cosmetic treatments.", bot)
+            await _send_treatment_browser(sender, bot, db, memory)
+        else:
+            await _send(sender, "Got it — we'll keep this chat focused on Aesthetic & Cosmetic treatments only. How can I help?", bot)
+        memory_store.append_history(memory, "assistant", "")
         memory_store.save_memory(db, bot.id, sender, memory)
-        await _send(sender, reply, bot)
         return
 
     if lowered_early == "-dental":
         memory = memory_store.load_memory(db, bot.id, sender)
         memory["locked_department"] = "dental"
         memory["locked_group"] = None
-        reply = "Got it — we'll keep this chat focused on Dental treatments only. How can I help?"
+        memory["department"] = None
+        memory["pending_question"] = None
+        memory["pending_field"] = None
+        if memory.get("mode") in ("enquiry", "booking"):
+            await _send(sender, "Got it — switching to Dental treatments.", bot)
+            await _send_treatment_browser(sender, bot, db, memory)
+        else:
+            await _send(sender, "Got it — we'll keep this chat focused on Dental treatments only. How can I help?", bot)
+        memory_store.append_history(memory, "assistant", "")
+        memory_store.save_memory(db, bot.id, sender, memory)
+        return
+
+    if lowered_early in ("-home", "-menu"):
+        memory = memory_store.load_memory(db, bot.id, sender)
+        memory["mode"] = None
+        memory["department"] = None
+        memory["pending_question"] = None
+        memory["pending_field"] = None
+        memory["awaiting_confirmation"] = False
+        await send_interactive_buttons(
+            sender, f"✨ Welcome back to *{bot.business_name or bot.name}*. How can we help you today?",
+            [
+                {"id": QUICK_CONSULT_ID, "title": "Consult with AI ✨"},
+                {"id": QUICK_ENQUIRY_ID, "title": "Treatment Enquiry 💬"},
+                {"id": QUICK_BOOK_ID, "title": "Book Appointment 📅"},
+            ],
+            bot,
+        )
+        memory_store.append_history(memory, "assistant", "")
+        memory_store.save_memory(db, bot.id, sender, memory)
+        return
+
+    if lowered_early == "-back":
+        memory = memory_store.load_memory(db, bot.id, sender)
+        memory["pending_question"] = None
+        memory["pending_field"] = None
+        if memory.get("mode") in ("enquiry", "booking"):
+            memory["department"] = None
+            await _send_treatment_browser(sender, bot, db, memory)
+        else:
+            await _send(sender, "Okay — what would you like to do instead?", bot)
+        memory_store.append_history(memory, "assistant", "")
+        memory_store.save_memory(db, bot.id, sender, memory)
+        return
+
+    if lowered_early == "-book":
+        memory = memory_store.load_memory(db, bot.id, sender)
+        memory = appointment_service.load_patient_profile(memory, bot, db, sender)
+        memory["mode"] = "booking"
+        reply = await _handle_booking_intent(sender, memory, bot, db)
+        memory_store.append_history(memory, "assistant", reply or "")
+        memory_store.save_memory(db, bot.id, sender, memory)
+        if reply:
+            await _send(sender, reply, bot)
+        return
+
+    if lowered_early == "-consult":
+        memory = memory_store.load_memory(db, bot.id, sender)
+        memory["mode"] = "consult"
+        reply = "I'd love to understand your concern and suggest the best options. What's bothering you, or what would you like to improve?"
         memory_store.append_history(memory, "assistant", reply)
         memory_store.save_memory(db, bot.id, sender, memory)
+        await _send(sender, reply, bot)
+        return
+
+    if lowered_early == "-help":
+        reply = (
+            "*Available commands:*\n"
+            "-reset — start fresh as a new customer\n"
+            "-home / -menu — return to the main menu\n"
+            "-back — go back a step\n"
+            "-aesthetic / -skin / -cosmetic / -beauty — focus on Aesthetic & Cosmetic treatments\n"
+            "-dental — focus on Dental treatments\n"
+            "-book — start booking an appointment\n"
+            "-consult — talk to the AI about your concern\n"
+            "-reports — view clinic activity reports"
+        )
         await _send(sender, reply, bot)
         return
 

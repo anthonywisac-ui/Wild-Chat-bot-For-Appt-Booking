@@ -603,7 +603,10 @@ def delete_doctor(db: Session, doctor: "Doctor"):
     db.commit()
 
 def get_enabled_departments_for_bot(db: Session, bot_id: int) -> list:
-    """A department is 'enabled' for a bot if it has at least one active doctor configured."""
+    """A department is 'enabled' for a bot if it has at least one active doctor configured.
+    NOTE: this is doctor-availability only — use get_departments_with_procedures() for
+    deciding what to show in the treatment browser, since a clinic can have many
+    treatment categories with only one or two doctors covering all of them."""
     rows = db.query(Doctor.department).filter(Doctor.bot_id == bot_id, Doctor.active == True).distinct().all()
     return [r[0] for r in rows]
 
@@ -628,6 +631,15 @@ def get_procedures_by_bot(db: Session, bot_id: int, active_only: bool = True):
     if active_only:
         q = q.filter(Procedure.active == True)
     return q.order_by(Procedure.department, Procedure.name).all()
+
+def get_departments_with_procedures(db: Session, bot_id: int) -> list:
+    """A department is offered in the treatment browser if it has at least one
+    active PROCEDURE — independent of how many doctors are configured. This is
+    what Treatment Enquiry / Book Appointment should use to decide which
+    categories to show (a clinic can have many treatment categories covered
+    by just one or two doctors)."""
+    rows = db.query(Procedure.department).filter(Procedure.bot_id == bot_id, Procedure.active == True).distinct().all()
+    return [r[0] for r in rows]
 
 def get_procedures_by_department(db: Session, bot_id: int, department: str, active_only: bool = True):
     q = db.query(Procedure).filter(Procedure.bot_id == bot_id, Procedure.department == department)
