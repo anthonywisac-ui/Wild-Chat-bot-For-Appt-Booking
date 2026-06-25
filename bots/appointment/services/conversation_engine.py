@@ -198,10 +198,9 @@ async def _send_enquiry_details(sender, bot, db, memory: dict, proc) -> None:
     if proc.description:
         lines.append(proc.description)
 
-    addons = appointment_service.get_upsell_candidates(memory, bot, db)
-    if addons:
-        addon_lines = "\n".join(f"• {p.name} — ${p.fee_per_session * p.sessions_required:.0f}" for p in addons)
-        lines.append(f"\n💡 *Often combined with:*\n{addon_lines}")
+    # The upsell offer itself (with Add/No thanks buttons) is shown right after
+    # tapping "Book This" — showing the same combo preview here too is redundant
+    # and confuses patients into thinking it's a second, different question.
 
     await send_interactive_buttons(
         sender, "\n".join(lines),
@@ -288,11 +287,23 @@ async def _handle_booking_intent(sender, memory: dict, bot, db) -> str | None:
             return None
 
     if validation["blocking_error"]:
+        if memory.get("mode") == "booking":
+            # Mode 3 rule: no AI call, and the next reply MUST be captured
+            # deterministically — otherwise a bare reply like "Monday" can get
+            # misclassified as wanting to reschedule an unrelated appointment.
+            await _send(sender, f"⚠️ {validation['blocking_error']}", bot)
+            if memory.get("date_text") or memory.get("date_iso"):
+                await _send_quick_time_picker(sender, bot, memory)
+            else:
+                await _send_quick_date_picker(sender, bot, memory)
+            return None
+
         directive = (
             f"The patient's requested date/time doesn't work: {validation['blocking_error']} "
             "Apologize briefly and ask for an alternative."
         )
         memory["pending_question"] = directive
+        memory["pending_field"] = "date" if not (memory.get("date_text") or memory.get("date_iso")) else "time"
         return await response_composer.compose(directive, memory, bot, db)
 
     if validation["missing"]:
@@ -342,9 +353,10 @@ async def _handle_booking_intent(sender, memory: dict, bot, db) -> str | None:
 async def _finalize_booking(sender, memory: dict, bot, db) -> str:
     appt = appointment_service.finalize_booking(memory, bot, db, sender)
     doctor = get_doctor_by_id(db, bot.id, appt.doctor_id) if appt.doctor_id else None
+    procedure = get_procedure_by_id(db, bot.id, appt.procedure_id) if appt.procedure_id else None
 
     try:
-        file_path = generate_appointment_pdf(appt, bot, doctor=doctor)
+        file_path = generate_appointment_pdf(appt, bot, doctor=doctor, procedure=procedure)
         await send_document_v2(
             sender, file_path, f"appointment_{appt.id}.pdf", bot,
             caption=f"Appointment #{appt.id} confirmation",
@@ -364,7 +376,7 @@ async def handle_turn(sender: str, text: str, bot, db) -> None:
     # ── Testing/admin shortcuts — checked before anything else, never AI-classified ──
     if lowered_early == "-reset":
         from db import reset_customer
-        reset_customer(db, bot.id, sender)
+        reset_customer(db, bot.id, sender, wipe_appointments=True)
         await send_interactive_buttons(
             sender,
             "🔄 All set — starting fresh as a new customer!\n\n"

@@ -681,13 +681,20 @@ def get_doctor_appointments_on_date(db: Session, bot_id: int, doctor_id: int, ap
 
 # ========== Customer Reset & Reports ==========
 
-def reset_customer(db: Session, bot_id: int, phone: str) -> None:
+def reset_customer(db: Session, bot_id: int, phone: str, wipe_appointments: bool = False) -> None:
     """Wipes conversation memory + screening/lead history for one (bot, phone) pair —
     used by the '-reset' shortcut so testers can simulate a brand-new customer.
-    Does NOT delete past appointments (those are real business records)."""
+    By default does NOT touch past appointments (those are real business records);
+    pass wipe_appointments=True to also mark this phone's upcoming appointments as
+    Cancelled, for a genuinely clean slate during repeated test runs on the same number."""
     db.query(SessionState).filter(SessionState.bot_id == bot_id, SessionState.sender_number == phone).delete()
     db.query(PatientProfile).filter(PatientProfile.bot_id == bot_id, PatientProfile.phone == phone).delete()
     db.query(Lead).filter(Lead.bot_id == bot_id, Lead.phone == phone).delete()
+    if wipe_appointments:
+        db.query(Appointment).filter(
+            Appointment.bot_id == bot_id, Appointment.customer_phone == phone,
+            Appointment.status.in_(["Confirmed", "Rescheduled"]),
+        ).update({"status": "Cancelled"}, synchronize_session=False)
     db.commit()
 
 def get_report_stats(db: Session, bot_id: int, since: datetime) -> dict:

@@ -217,13 +217,16 @@ def save_patient_profile(memory: dict, bot, db, sender: str) -> None:
     })
 
 
-def _required_screening_fields(department: str | None) -> list[str]:
+def _required_screening_fields(department: str | None, gender: str | None = None) -> list[str]:
     """Core screening for every booking, plus pregnancy/medication questions for
     anything cosmetic/medical (skin, hair, laser, injectables, body) — not needed
-    for routine dental visits."""
+    for routine dental visits. Pregnancy/breastfeeding is never asked of a patient
+    who has told us they are male."""
     fields = ["age", "gender", "allergies", "medical_conditions"]
     if department and department != "dental":
-        fields += ["pregnancy_status", "current_medications"]
+        if (gender or "").strip().lower() != "male":
+            fields.append("pregnancy_status")
+        fields.append("current_medications")
     return fields
 
 
@@ -279,7 +282,7 @@ async def resolve_and_validate(memory: dict, bot, db) -> dict:
     elif not memory.get("department") and not memory.get("treatment") and not memory.get("concern"):
         missing.append("treatment")
 
-    for field in _required_screening_fields(memory.get("department")):
+    for field in _required_screening_fields(memory.get("department"), memory.get("gender")):
         if not memory.get(field):
             missing.append(field)
 
@@ -358,11 +361,17 @@ def booking_summary_text(memory: dict, bot, db) -> str:
     time_obj = _dt.strptime(memory["time_24h"], "%H:%M").time()
 
     fee = memory.get("fee_estimate") or (doctor.consultation_fee if doctor else 0.0)
+    sessions_line = ""
+    if procedure and procedure.sessions_required and procedure.sessions_required > 1:
+        sessions_line = (
+            f"📦 {procedure.sessions_required} sessions (package total — first visit shown below)\n"
+        )
     return (
         f"{' '.join(parts)}\n"
+        f"{sessions_line}"
         f"📅 {format_date(date_obj)}\n"
         f"⏰ {format_time(time_obj)}\n"
-        f"💰 ${fee:.0f}"
+        f"💰 ${fee:.0f}{' total for the package' if procedure and procedure.sessions_required and procedure.sessions_required > 1 else ''}"
     )
 
 

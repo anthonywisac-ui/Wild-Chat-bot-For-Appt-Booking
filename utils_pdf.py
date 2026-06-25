@@ -19,11 +19,12 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 PDF_OUTPUT_DIR = os.getenv("PDF_OUTPUT_DIR", os.path.join(tempfile.gettempdir(), "appointment_pdfs"))
 
 
-def generate_appointment_pdf(appointment, bot, doctor=None) -> str:
+def generate_appointment_pdf(appointment, bot, doctor=None, procedure=None) -> str:
     """
     appointment: db.Appointment instance
     bot: db.WhatsappBot instance
     doctor: optional db.Doctor instance (adds department/doctor name/fee rows)
+    procedure: optional db.Procedure instance (adds a sessions-required row for packages)
     Returns the absolute file path of the generated PDF.
     """
     os.makedirs(PDF_OUTPUT_DIR, exist_ok=True)
@@ -66,11 +67,14 @@ def generate_appointment_pdf(appointment, bot, doctor=None) -> str:
         rows.append(["Department", appointment.department.title()])
 
     rows.append(["Service", appointment.service or "-"])
+    if procedure is not None and procedure.sessions_required and procedure.sessions_required > 1:
+        rows.append(["Sessions", f"{procedure.sessions_required} sessions (package)"])
     rows.append(["Date", appointment.appointment_date or "-"])
     rows.append(["Time", appointment.appointment_time or "-"])
 
     if appointment.consultation_fee:
-        rows.append(["Consultation Fee", f"${appointment.consultation_fee:.0f}"])
+        fee_label = "Package Total" if (procedure is not None and procedure.sessions_required and procedure.sessions_required > 1) else "Consultation Fee"
+        rows.append([fee_label, f"${appointment.consultation_fee:.0f}"])
 
     rows.append(["Customer", appointment.customer_name or appointment.customer_phone])
     rows.append(["Phone", appointment.customer_phone])
