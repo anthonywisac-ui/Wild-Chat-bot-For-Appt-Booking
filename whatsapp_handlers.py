@@ -112,19 +112,14 @@ async def send_interactive_list(to, header_text, body_text, button_text, section
     text menu and remembers the row IDs so numeric replies still work.
 
     sections: [{"title": str, "rows": [{"id": str, "title": str, "description": str}, ...]}]
-    image_path: optional local image file — when given (and the file exists),
-    it's uploaded and used as the message's native image header so it renders
-    INSIDE this one message, above the body text, instead of as a separate
-    message. header_text is dropped in that case (Meta allows only one header
-    type) — fold anything important from it into body_text instead.
+    image_path: optional local image file — Meta's List Message header only
+    supports type "text" (image headers are a "button"-message-only feature),
+    so when given, the image is sent as its own quick image message
+    immediately before the list, with the header_text folded into its caption
+    so it still reads as one continuous reply rather than two unrelated ones.
     """
-    header = {"type": "text", "text": header_text}
-    media_id = None
     if image_path and getattr(bot, "provider", "meta") != "wwebjs":
-        from providers.meta import MetaProvider
-        media_id = await MetaProvider(bot).upload_media(image_path)
-        if media_id:
-            header = {"type": "image", "image": {"id": media_id}}
+        await send_image_v2(to, image_path, bot, caption=header_text or "")
 
     payload = {
         "messaging_product": "whatsapp",
@@ -132,7 +127,7 @@ async def send_interactive_list(to, header_text, body_text, button_text, section
         "type": "interactive",
         "interactive": {
             "type": "list",
-            "header": header,
+            "header": {"type": "text", "text": header_text},
             "body": {"text": body_text},
             "action": {"button": button_text, "sections": sections},
         },

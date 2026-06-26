@@ -175,9 +175,9 @@ async def _send_welcome_buttons(sender, bot, lead_in: str) -> None:
     await send_interactive_buttons(
         sender, lead_in,
         [
-            {"id": QUICK_CONSULT_ID, "title": "Consult with AI ✨"},
-            {"id": QUICK_ENQUIRY_ID, "title": "Treatment Enquiry 💬"},
-            {"id": QUICK_BOOK_ID, "title": "Book Appointment 📅"},
+            {"id": QUICK_CONSULT_ID, "title": "Consult with AI"},
+            {"id": QUICK_ENQUIRY_ID, "title": "Treatment Enquiry"},
+            {"id": QUICK_BOOK_ID, "title": "Book Appointment"},
         ],
         bot, image_path=_image_path("welcome_banner.png"),
     )
@@ -185,11 +185,11 @@ async def _send_welcome_buttons(sender, bot, lead_in: str) -> None:
 
 async def _send_returning_customer_menu(sender, bot) -> None:
     rows = [
-        {"id": RETURN_BOOK_ID, "title": "📝 Book", "description": "Book a new appointment"},
-        {"id": RETURN_VIEW_ID, "title": "📋 View", "description": "View your appointments"},
-        {"id": RETURN_RESCHEDULE_ID, "title": "🔁 Reschedule", "description": "Reschedule an appointment"},
-        {"id": RETURN_CANCEL_ID, "title": "❌ Cancel", "description": "Cancel an appointment"},
-        {"id": RETURN_ASK_ID, "title": "❓ Ask a question", "description": "Hours, location, pricing..."},
+        {"id": RETURN_BOOK_ID, "title": "Book", "description": "Book a new appointment"},
+        {"id": RETURN_VIEW_ID, "title": "View", "description": "View your appointments"},
+        {"id": RETURN_RESCHEDULE_ID, "title": "Reschedule", "description": "Reschedule an appointment"},
+        {"id": RETURN_CANCEL_ID, "title": "Cancel", "description": "Cancel an appointment"},
+        {"id": RETURN_ASK_ID, "title": "Ask a question", "description": "Hours, location, pricing..."},
     ]
     await send_interactive_list(
         sender, "Returning Customer", "I can help you:", "Select an option",
@@ -303,7 +303,7 @@ async def _send_enquiry_details(sender, bot, db, memory: dict, proc) -> None:
 
     await send_interactive_buttons(
         sender, "\n".join(lines),
-        [{"id": f"ENQ_BOOK_{proc.id}", "title": "📅 Book This"}, {"id": ENQ_BROWSE_ID, "title": "🔍 Browse More"}],
+        [{"id": f"ENQ_BOOK_{proc.id}", "title": "Book This"}, {"id": ENQ_BROWSE_ID, "title": "Browse More"}],
         bot, image_path=_procedure_image(proc.name),
     )
     memory["pending_question"] = "awaiting_enquiry_action"
@@ -410,7 +410,7 @@ async def _handle_booking_intent(sender, memory: dict, bot, db) -> str | None:
             buttons.append({"id": "UPSELL_SKIP", "title": "No thanks"})
             lines = "\n".join(f"• {p.name} — ${p.fee_per_session * p.sessions_required:.0f}" for p in addons)
             await send_interactive_buttons(
-                sender, f"💡 Many clients combine this with:\n{lines}\n\nWould you like to add one?",
+                sender, f"Many clients combine this with:\n{lines}\n\nWould you like to add one?",
                 buttons, bot,
             )
             memory["pending_question"] = "awaiting_upsell_choice"
@@ -421,7 +421,7 @@ async def _handle_booking_intent(sender, memory: dict, bot, db) -> str | None:
             # Mode 3 rule: no AI call, and the next reply MUST be captured
             # deterministically — otherwise a bare reply like "Monday" can get
             # misclassified as wanting to reschedule an unrelated appointment.
-            await _send(sender, f"⚠️ {validation['blocking_error']}", bot)
+            await _send(sender, f"{validation['blocking_error']}", bot)
             if memory.get("date_text") or memory.get("date_iso"):
                 await _send_quick_time_picker(sender, bot, memory)
             else:
@@ -490,8 +490,8 @@ async def _handle_booking_intent(sender, memory: dict, bot, db) -> str | None:
             memory, bot, db,
         )
     await send_interactive_buttons(
-        sender, f"{lead_in}\n\n📝 *{summary}*",
-        [{"id": BOOKING_CONFIRM_ID, "title": "✅ Confirm"}, {"id": BOOKING_CHANGE_ID, "title": "✏️ Change"}],
+        sender, f"{lead_in}\n\n*{summary}*",
+        [{"id": BOOKING_CONFIRM_ID, "title": "Confirm"}, {"id": BOOKING_CHANGE_ID, "title": "Change"}],
         bot,
     )
     return None  # already sent directly
@@ -520,7 +520,7 @@ async def _finalize_booking(sender, memory: dict, bot, db) -> str:
 
     memory_store.reset_booking_fields(memory)
     memory["awaiting_confirmation"] = False
-    return "✅ You're all booked! I've sent your confirmation as a PDF above. Is there anything else I can help with?"
+    return "You're all booked! I've sent your confirmation as a PDF above. Is there anything else I can help with?"
 
 
 def _format_treatment_schedule(sessions, procedure) -> str:
@@ -551,8 +551,8 @@ async def handle_turn(sender: str, text: str, bot, db) -> None:
         reset_customer(db, bot.id, sender, wipe_appointments=True)
         await _send_welcome_buttons(
             sender, bot,
-            "🔄 All set — starting fresh as a new customer!\n\n"
-            f"✨ Welcome to *{bot.business_name or bot.name}*. How can we help you today?",
+            "All set — starting fresh as a new customer!\n\n"
+            f"Welcome to *{bot.business_name or bot.name}*. How can we help you today?",
         )
         return
 
@@ -595,7 +595,7 @@ async def handle_turn(sender: str, text: str, bot, db) -> None:
         memory["pending_question"] = None
         memory["pending_field"] = None
         memory["awaiting_confirmation"] = False
-        await _send_welcome_buttons(sender, bot, f"✨ Welcome back to *{bot.business_name or bot.name}*. How can we help you today?")
+        await _send_welcome_buttons(sender, bot, f"Welcome back to *{bot.business_name or bot.name}*. How can we help you today?")
         memory_store.append_history(memory, "assistant", "")
         memory_store.save_memory(db, bot.id, sender, memory)
         return
@@ -659,7 +659,7 @@ async def handle_turn(sender: str, text: str, bot, db) -> None:
         def _line(label, stats):
             return f"*{label}:* {stats['appointments']} appointments, ${stats['revenue']:.0f} revenue, {stats['leads']} new leads, {stats['cancelled']} cancelled"
 
-        reply = "📊 *Clinic Reports*\n\n" + "\n\n".join([
+        reply = "*Clinic Reports*\n\n" + "\n\n".join([
             _line("Today", daily), _line("This Week", weekly), _line("This Month", monthly),
         ])
         await _send(sender, reply, bot)
@@ -890,7 +890,7 @@ async def handle_turn(sender: str, text: str, bot, db) -> None:
             reply = "I couldn't find that appointment — it may have already been cancelled. Type *menu* to see options."
         else:
             appointment_service.cancel(db, appt)
-            reply = f"❌ Your appointment #{appt.id} on {appt.appointment_date} has been cancelled."
+            reply = f"Your appointment #{appt.id} on {appt.appointment_date} has been cancelled."
         memory["pending_question"] = None
         memory_store.append_history(memory, "assistant", reply)
         memory_store.save_memory(db, bot.id, sender, memory)
@@ -926,7 +926,7 @@ async def handle_turn(sender: str, text: str, bot, db) -> None:
                     reply = "I couldn't find that appointment — it may have already been cancelled."
                 else:
                     appointment_service.cancel(db, appt)
-                    reply = f"❌ Your appointment #{appt.id} on {appt.appointment_date} has been cancelled."
+                    reply = f"Your appointment #{appt.id} on {appt.appointment_date} has been cancelled."
             else:
                 appt = appointment_service.find_appointment(bot, db, sender, chosen_id)
                 if not appt:
@@ -1059,7 +1059,7 @@ async def handle_turn(sender: str, text: str, bot, db) -> None:
                 )
             else:
                 appointment_service.reschedule(db, appt, temp_memory["date_iso"], temp_memory["time_24h"])
-                reply = f"🔁 Your appointment #{appt.id} has been rescheduled to {temp_memory['date_iso']} at {temp_memory['time_24h']}."
+                reply = f"Your appointment #{appt.id} has been rescheduled to {temp_memory['date_iso']} at {temp_memory['time_24h']}."
                 memory["pending_question"] = None
                 memory["appointment_id"] = None
         memory_store.append_history(memory, "assistant", reply)
@@ -1212,8 +1212,8 @@ async def handle_turn(sender: str, text: str, bot, db) -> None:
         else:
             lines = []
             for a in appointments:
-                lines.append(f"🔖 #{a.id} — {_appointment_label(a, db, bot)}\n📅 {a.appointment_date} ⏰ {a.appointment_time}")
-            reply = "📋 *Your Upcoming Appointments:*\n\n" + "\n\n".join(lines)
+                lines.append(f"#{a.id} — {_appointment_label(a, db, bot)}\n{a.appointment_date} {a.appointment_time}")
+            reply = "*Your Upcoming Appointments:*\n\n" + "\n\n".join(lines)
 
     elif intent == "appointment_cancel":
         appointments = appointment_service.list_upcoming(bot, db, sender)
@@ -1223,7 +1223,7 @@ async def handle_turn(sender: str, text: str, bot, db) -> None:
             )
         elif len(appointments) == 1:
             appointment_service.cancel(db, appointments[0])
-            reply = f"❌ Your appointment #{appointments[0].id} on {appointments[0].appointment_date} has been cancelled."
+            reply = f"Your appointment #{appointments[0].id} on {appointments[0].appointment_date} has been cancelled."
         else:
             await _send_appointment_picker(sender, bot, db, appointments, "cancel")
             memory["pending_question"] = "awaiting_cancel_choice"
@@ -1246,7 +1246,7 @@ async def handle_turn(sender: str, text: str, bot, db) -> None:
                 reply = await response_composer.compose(f"Can't reschedule to that time: {error} Ask for an alternative.", memory, bot, db)
             else:
                 appointment_service.reschedule(db, appt, temp_memory["date_iso"], temp_memory["time_24h"])
-                reply = f"🔁 Your appointment #{appt.id} has been rescheduled to {temp_memory['date_iso']} at {temp_memory['time_24h']}."
+                reply = f"Your appointment #{appt.id} has been rescheduled to {temp_memory['date_iso']} at {temp_memory['time_24h']}."
         elif len(appointments) == 1:
             memory["appointment_id"] = appointments[0].id
             memory["pending_question"] = "awaiting_reschedule_datetime"

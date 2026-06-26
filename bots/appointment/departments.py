@@ -8,7 +8,7 @@
 DEPARTMENTS = {
     "skin": {
         "label": "Skin Treatments",
-        "emoji": "✨",
+        "emoji": "",
         "description": (
             "Facials, peels, acne, pigmentation, brightening, anti-aging skin treatments: "
             "HydraFacial, Chemical Peel, Microneedling, Microneedling + PRP, PRP Skin "
@@ -18,7 +18,7 @@ DEPARTMENTS = {
     },
     "hair": {
         "label": "Hair Treatments",
-        "emoji": "💇",
+        "emoji": "",
         "description": (
             "Hair fall, thinning, and scalp treatments: PRP Hair Therapy, Hair Growth "
             "Therapy, Mesotherapy, Scalp Analysis."
@@ -26,7 +26,7 @@ DEPARTMENTS = {
     },
     "laser": {
         "label": "Laser Treatments",
-        "emoji": "🔆",
+        "emoji": "",
         "description": (
             "Laser-based hair removal and skin treatments: Laser Hair Removal, Pigmentation "
             "Laser, Acne Scar Laser, Carbon Laser Facial, Laser Skin Resurfacing."
@@ -34,7 +34,7 @@ DEPARTMENTS = {
     },
     "injectables": {
         "label": "Injectables",
-        "emoji": "💉",
+        "emoji": "",
         "description": (
             "Botox and dermal fillers: Botox, Lip Fillers, Cheek Fillers, Jawline Fillers, "
             "Under Eye Fillers."
@@ -42,7 +42,7 @@ DEPARTMENTS = {
     },
     "body": {
         "label": "Body Treatments",
-        "emoji": "🧍",
+        "emoji": "",
         "description": (
             "Body shaping and tightening: Body Contouring, Fat Dissolving Injections, "
             "HIFU Tightening, RF Tightening, Cellulite Reduction."
@@ -50,7 +50,7 @@ DEPARTMENTS = {
     },
     "dental": {
         "label": "Dental Treatments",
-        "emoji": "🦷",
+        "emoji": "",
         "description": (
             "Teeth and gum care: Teeth Whitening, Scaling & Polishing, Dental Veneers, "
             "Dental Crowns, Root Canal Treatment, Dental Implants, Smile Design."
