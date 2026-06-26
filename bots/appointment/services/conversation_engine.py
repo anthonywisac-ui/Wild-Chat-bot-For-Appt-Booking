@@ -49,6 +49,26 @@ def _image_path(name: str) -> str:
             return path
     return os.path.join(IMAGES_DIR, name)
 
+
+# Keyword -> image file for individual treatments the clinic has uploaded a
+# dedicated photo for. Falls back to no image (just text) when no keyword matches.
+_PROCEDURE_IMAGE_KEYWORDS = [
+    ("hifu", "Hifu.png"),
+    ("root canal", "Root-Canal.jpeg"),
+    ("whitening", "White-Polishing.png"),
+    ("polishing", "White-Polishing.png"),
+]
+
+
+def _procedure_image(name: str) -> str | None:
+    lowered = (name or "").lower()
+    for keyword, filename in _PROCEDURE_IMAGE_KEYWORDS:
+        if keyword in lowered:
+            path = _image_path(filename)
+            if os.path.isfile(path):
+                return path
+    return None
+
 from ai.intent import looks_like_question
 from bots.appointment.departments import DEPARTMENTS
 from bots.appointment.intake_questions import INTAKE_QUESTIONS, next_intake_question
@@ -140,10 +160,18 @@ async def _send(sender, text, bot):
     await send_text_message_v2(sender, text, bot)
 
 
+async def _send_with_image(sender, bot, image_name: str, text: str) -> None:
+    """Sends text with a local image embedded as its caption (one message).
+    Falls back to plain text if the image file doesn't exist, so a missing
+    brand asset never silently drops the message entirely."""
+    sent = await send_image_v2(sender, _image_path(image_name), bot, caption=text)
+    if not sent:
+        await _send(sender, text, bot)
+
+
 async def _send_welcome_buttons(sender, bot, lead_in: str) -> None:
-    """Sends the branded welcome banner image (if the clinic has uploaded one),
-    followed by the 3-button main menu."""
-    await send_image_v2(sender, _image_path("welcome_banner.png"), bot)
+    """Sends the 3-button main menu with the branded welcome banner image (if
+    the clinic has uploaded one) embedded as the message's own image header."""
     await send_interactive_buttons(
         sender, lead_in,
         [
@@ -151,7 +179,7 @@ async def _send_welcome_buttons(sender, bot, lead_in: str) -> None:
             {"id": QUICK_ENQUIRY_ID, "title": "Treatment Enquiry 💬"},
             {"id": QUICK_BOOK_ID, "title": "Book Appointment 📅"},
         ],
-        bot,
+        bot, image_path=_image_path("welcome_banner.png"),
     )
 
 
@@ -212,10 +240,10 @@ async def _send_treatment_list_for_department(sender, bot, db, department: str) 
             "description": f"${p.fee_per_session:.0f}/session{sessions}",
         })
     label = DEPARTMENTS.get(department, {}).get("label", department.title())
-    await send_image_v2(sender, _image_path(f"{department}.png"), bot)
     await send_interactive_list(
         sender, f"{label} Treatments", f"Choose a treatment in {label}:",
         "View Treatments", [{"title": "Treatments", "rows": rows}], bot,
+        image_path=_image_path(f"{department}.png"),
     )
     return True
 
@@ -243,10 +271,10 @@ async def _send_treatment_browser(sender, bot, db, memory: dict) -> None:
             "id": f"DEPT_{slug.upper()}", "title": f"{info['emoji']} {info['label']}"[:24],
             "description": info["description"][:72],
         } for slug, info in DEPARTMENTS.items() if slug in enabled]
-        await send_image_v2(sender, _image_path("categories_showcase.png"), bot)
         await send_interactive_list(
             sender, "Choose a Category", "Which category are you interested in?",
             "View Categories", [{"title": "Categories", "rows": rows}], bot,
+            image_path=_image_path("categories_showcase.png"),
         )
         memory["pending_question"] = "awaiting_department_choice"
         memory["pending_field"] = None
@@ -276,7 +304,7 @@ async def _send_enquiry_details(sender, bot, db, memory: dict, proc) -> None:
     await send_interactive_buttons(
         sender, "\n".join(lines),
         [{"id": f"ENQ_BOOK_{proc.id}", "title": "📅 Book This"}, {"id": ENQ_BROWSE_ID, "title": "🔍 Browse More"}],
-        bot,
+        bot, image_path=_procedure_image(proc.name),
     )
     memory["pending_question"] = "awaiting_enquiry_action"
     memory["pending_field"] = None
@@ -365,10 +393,10 @@ async def _handle_booking_intent(sender, memory: dict, bot, db) -> str | None:
             "id": f"DOC_{d.id}", "title": f"Dr. {d.name}"[:24],
             "description": f"${d.consultation_fee:.0f} • {(d.bio or 'Specialist')[:50]}",
         } for d in validation["doctor_options"][:10]]
-        await send_image_v2(sender, _image_path("doctor_selection.png"), bot)
         await send_interactive_list(
             sender, "Choose a Doctor", "Which doctor would you prefer?",
             "View Doctors", [{"title": "Doctors", "rows": rows}], bot,
+            image_path=_image_path("doctor_selection.png"),
         )
         memory["pending_question"] = "awaiting_doctor_choice"
         return None
@@ -488,7 +516,7 @@ async def _finalize_booking(sender, memory: dict, bot, db) -> str:
         logger.warning(f"[conversation_engine] PDF send failed: {exc}")
 
     if sessions:
-        await _send(sender, _format_treatment_schedule(sessions, procedure), bot)
+        await _send_with_image(sender, bot, "Package.png", _format_treatment_schedule(sessions, procedure))
 
     memory_store.reset_booking_fields(memory)
     memory["awaiting_confirmation"] = False
@@ -725,7 +753,7 @@ async def handle_turn(sender: str, text: str, bot, db) -> None:
         reply = "Sure — what would you like to know? (hours, location, pricing, a treatment...)"
         memory_store.append_history(memory, "assistant", reply)
         memory_store.save_memory(db, bot.id, sender, memory)
-        await _send(sender, reply, bot)
+        await _send_with_image(sender, bot, "Customer-Ask-a-Question.png", reply)
         return
 
     # ── Category (department) list tap — Mode 2/3 structured browsing ──────
@@ -984,6 +1012,9 @@ async def handle_turn(sender: str, text: str, bot, db) -> None:
             memory["doctor_id"] = doctor.id
             if not memory.get("fee_estimate"):
                 memory["fee_estimate"] = doctor.consultation_fee
+            gender_image = "Dr-Female.png" if (doctor.gender or "").lower() == "female" else "Dr-male.png" if (doctor.gender or "").lower() == "male" else None
+            if gender_image:
+                await _send_with_image(sender, bot, gender_image, f"Great choice — Dr. {doctor.name} it is!")
         memory["pending_question"] = None
         reply = await _handle_booking_intent(sender, memory, bot, db)
         memory_store.append_history(memory, "assistant", reply or "")

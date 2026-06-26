@@ -105,21 +105,34 @@ async def send_image_v2(to, file_path, bot: WhatsappBot, caption: str = ""):
     provider = MetaProvider(bot)
     return await provider.send_image(to, file_path, caption)
 
-async def send_interactive_list(to, header_text, body_text, button_text, sections, bot: WhatsappBot):
+async def send_interactive_list(to, header_text, body_text, button_text, sections, bot: WhatsappBot, image_path: str = None):
     """
     Sends a native WhatsApp List Message (Meta) — up to 10 rows per section.
     For wwebjs bots, the wwebjs provider auto-converts this into a numbered
     text menu and remembers the row IDs so numeric replies still work.
 
     sections: [{"title": str, "rows": [{"id": str, "title": str, "description": str}, ...]}]
+    image_path: optional local image file — when given (and the file exists),
+    it's uploaded and used as the message's native image header so it renders
+    INSIDE this one message, above the body text, instead of as a separate
+    message. header_text is dropped in that case (Meta allows only one header
+    type) — fold anything important from it into body_text instead.
     """
+    header = {"type": "text", "text": header_text}
+    media_id = None
+    if image_path and getattr(bot, "provider", "meta") != "wwebjs":
+        from providers.meta import MetaProvider
+        media_id = await MetaProvider(bot).upload_media(image_path)
+        if media_id:
+            header = {"type": "image", "image": {"id": media_id}}
+
     payload = {
         "messaging_product": "whatsapp",
         "to": to,
         "type": "interactive",
         "interactive": {
             "type": "list",
-            "header": {"type": "text", "text": header_text},
+            "header": header,
             "body": {"text": body_text},
             "action": {"button": button_text, "sections": sections},
         },
@@ -136,20 +149,29 @@ async def send_interactive_list(to, header_text, body_text, button_text, section
     headers  = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
     return await _post_with_retry(url, payload, headers, "send_interactive_list")
 
-async def send_interactive_buttons(to, body_text, buttons, bot: WhatsappBot):
+async def send_interactive_buttons(to, body_text, buttons, bot: WhatsappBot, image_path: str = None):
     """
     Sends up to 3 quick-reply buttons (Meta limit). buttons: [{"id": str, "title": str}, ...]
     Falls back to numbered text for wwebjs bots (same conversion as lists).
+    image_path: optional local image file — uploaded and used as the native
+    image header so it renders INSIDE this message, above the body text.
     """
+    interactive = {
+        "type": "button",
+        "body": {"text": body_text},
+        "action": {"buttons": [{"type": "reply", "reply": {"id": b["id"], "title": b["title"]}} for b in buttons[:3]]},
+    }
+    if image_path and getattr(bot, "provider", "meta") != "wwebjs":
+        from providers.meta import MetaProvider
+        media_id = await MetaProvider(bot).upload_media(image_path)
+        if media_id:
+            interactive["header"] = {"type": "image", "image": {"id": media_id}}
+
     payload = {
         "messaging_product": "whatsapp",
         "to": to,
         "type": "interactive",
-        "interactive": {
-            "type": "button",
-            "body": {"text": body_text},
-            "action": {"buttons": [{"type": "reply", "reply": {"id": b["id"], "title": b["title"]}} for b in buttons[:3]]},
-        },
+        "interactive": interactive,
     }
 
     if bot and getattr(bot, "provider", "meta") == "wwebjs":

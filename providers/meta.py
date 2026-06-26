@@ -26,6 +26,33 @@ class MetaProvider:
         self.token    = (getattr(bot, "meta_token", None) or WHATSAPP_TOKEN)
         self.phone_id = (getattr(bot, "phone_number_id", None) or WHATSAPP_PHONE_NUMBER_ID)
 
+    async def upload_media(self, file_path: str) -> str | None:
+        """Uploads a local image file to Meta's media endpoint and returns the
+        media_id, or None on failure. Shared by send_image and the interactive
+        list/button senders that embed an image as the message header."""
+        if not file_path or not os.path.isfile(file_path):
+            return None
+        upload_url = f"https://graph.facebook.com/{META_API_VERSION}/{self.phone_id}/media"
+        headers = {"Authorization": f"Bearer {self.token}"}
+        content_type = "image/png" if file_path.lower().endswith(".png") else "image/jpeg"
+        try:
+            session = await SharedSession.get_session()
+            with open(file_path, "rb") as f:
+                form = aiohttp.FormData()
+                form.add_field("messaging_product", "whatsapp")
+                form.add_field("type", content_type)
+                form.add_field("file", f, filename=os.path.basename(file_path), content_type=content_type)
+                async with session.post(upload_url, data=form, headers=headers) as up_resp:
+                    if up_resp.status >= 400:
+                        text = await up_resp.text()
+                        logger.error(f"[MetaProvider] media upload failed {up_resp.status}: {text}")
+                        return None
+                    media_data = await up_resp.json()
+                    return media_data.get("id")
+        except Exception as exc:
+            logger.error(f"[MetaProvider] upload_media exception: {exc}")
+            return None
+
     async def send_text(self, to: str, message: str) -> bool:
         url     = f"https://graph.facebook.com/{META_API_VERSION}/{self.phone_id}/messages"
         headers = {"Authorization": f"Bearer {self.token}", "Content-Type": "application/json"}
