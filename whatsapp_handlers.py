@@ -115,11 +115,16 @@ async def send_interactive_list(to, header_text, body_text, button_text, section
     image_path: optional local image file — Meta's List Message header only
     supports type "text" (image headers are a "button"-message-only feature),
     so when given, the image is sent as its own quick image message
-    immediately before the list, with the header_text folded into its caption
-    so it still reads as one continuous reply rather than two unrelated ones.
+    immediately before the list, with the FULL question text (header + body)
+    folded into its caption. The list itself then carries only generic
+    scaffold text ("Options" / "Tap to select:") so the real question is
+    never shown twice across the two messages.
     """
+    list_header, list_body = header_text, body_text
     if image_path and getattr(bot, "provider", "meta") != "wwebjs":
-        await send_image_v2(to, image_path, bot, caption=header_text or "")
+        caption = f"{header_text}. {body_text}" if header_text and body_text else (header_text or body_text or "")
+        await send_image_v2(to, image_path, bot, caption=caption)
+        list_header, list_body = "Options", "Tap to select:"
 
     payload = {
         "messaging_product": "whatsapp",
@@ -127,8 +132,8 @@ async def send_interactive_list(to, header_text, body_text, button_text, section
         "type": "interactive",
         "interactive": {
             "type": "list",
-            "header": {"type": "text", "text": header_text},
-            "body": {"text": body_text},
+            "header": {"type": "text", "text": list_header},
+            "body": {"text": list_body},
             "action": {"button": button_text, "sections": sections},
         },
     }

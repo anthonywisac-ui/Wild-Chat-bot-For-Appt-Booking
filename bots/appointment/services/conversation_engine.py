@@ -1186,11 +1186,7 @@ async def handle_turn(sender: str, text: str, bot, db) -> None:
         if get_patient_profile(db, bot.id, sender):
             await _send_returning_customer_menu(sender, bot)
         else:
-            lead_in = await response_composer.compose(
-                "Greet the patient warmly as a premium aesthetic/dental clinic receptionist. Keep it to one short, welcoming sentence — the next message will show their options.",
-                memory, bot, db,
-            )
-            await _send_welcome_buttons(sender, bot, lead_in)
+            await _send_welcome_buttons(sender, bot, "How can we help you today?")
         reply = None
 
     elif intent == "appointment_booking":
