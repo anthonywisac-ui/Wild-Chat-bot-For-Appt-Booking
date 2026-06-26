@@ -75,6 +75,22 @@ _PROCEDURE_IMAGE_KEYWORDS = [
     ("polishing", "White-Polishing.png"),
 ]
 
+# Per-question images for the patient-detail/intake screening flow. Any
+# question key not listed here falls back to the generic question image.
+_INTAKE_QUESTION_IMAGES = {
+    "age": "Whats-your-age.png",
+    "gender": "Whats-your-gender.png",
+    "concern": "whats-your-main-skin-concern.png",
+    "skin_duration": "how-long-you-had-concern.png",
+    "hair_duration": "how-long-you-had-concern.png",
+    "skin_type": "whats-your-skin-type.png",
+}
+_GENERIC_QUESTION_IMAGE = "for-All-Questions-i-ask.png"
+
+
+def _question_image(field: str) -> str:
+    return _image_path(_INTAKE_QUESTION_IMAGES.get(field, _GENERIC_QUESTION_IMAGE))
+
 
 def _procedure_image(name: str) -> str | None:
     lowered = (name or "").lower()
@@ -87,7 +103,23 @@ def _procedure_image(name: str) -> str | None:
 
 from ai.intent import looks_like_question
 from bots.appointment.departments import DEPARTMENTS
-from bots.appointment.intake_questions import INTAKE_QUESTIONS, next_intake_question
+from bots.appointment.intake_questions import INTAKE_QUESTIONS, ALL_INTAKE_KEYS, next_intake_question
+
+
+def _set_procedure(memory: dict, proc) -> None:
+    """Sets the chosen procedure on memory. If this is a DIFFERENT procedure
+    than whatever was there before, clears every intake-question field across
+    ALL departments first — otherwise a patient who browses, say, Body
+    Treatments and then switches to Lip Fillers keeps body's stale answers
+    (e.g. 'concern'/'treatment_area') and the wrong department's questions
+    get silently skipped or shown with the wrong options."""
+    if memory.get("procedure_id") and memory.get("procedure_id") != proc.id:
+        for key in ALL_INTAKE_KEYS:
+            memory[key] = None
+    memory["procedure_id"] = proc.id
+    memory["treatment"] = proc.name
+    memory["department"] = proc.department
+    memory["fee_estimate"] = proc.fee_per_session * proc.sessions_required
 
 from bots.appointment.services import conversation_memory as memory_store
 from bots.appointment.services import intent_classifier
@@ -349,7 +381,7 @@ async def _send_quick_time_picker(sender, bot, memory: dict) -> None:
 async def _send_screening_buttons(sender, bot, memory: dict, field: str) -> None:
     options = _SCREEN_OPTIONS[field]
     buttons = [{"id": f"SCREEN_{field}_{val}", "title": label[:20]} for val, label in options]
-    await send_interactive_buttons(sender, _FIELD_QUESTIONS[field], buttons, bot)
+    await send_interactive_buttons(sender, _FIELD_QUESTIONS[field], buttons, bot, image_path=_question_image(field))
     memory["pending_field"] = field
     memory["pending_question"] = f"awaiting_screen_{field}"
 
@@ -358,17 +390,18 @@ async def _send_intake_question(sender, bot, memory: dict, q: dict) -> None:
     """Sends one category-specific patient intake question (see intake_questions.py)
     as buttons, a list, or free text with a Skip option — deterministic, no AI."""
     key = q["key"]
+    image_path = _question_image(key)
     if q["type"] == "buttons":
         buttons = [{"id": f"INTAKE_{key}_{val}", "title": label[:20]} for val, label in q["options"]]
-        await send_interactive_buttons(sender, q["question"], buttons, bot)
+        await send_interactive_buttons(sender, q["question"], buttons, bot, image_path=image_path)
     elif q["type"] == "list":
         rows = [{"id": f"INTAKE_{key}_{val}", "title": label[:24]} for val, label in q["options"]]
-        await send_interactive_list(sender, "Choose one", q["question"], "Select", [{"title": "Options", "rows": rows}], bot)
+        await send_interactive_list(sender, "Choose one", q["question"], "Select", [{"title": "Options", "rows": rows}], bot, image_path=image_path)
     else:  # text_or_skip
         await send_interactive_buttons(
             sender, q["question"],
             [{"id": f"INTAKE_SKIP_{key}", "title": "Skip / None"}, {"id": f"INTAKE_YES_{key}", "title": "Yes"}],
-            bot,
+            bot, image_path=image_path,
         )
     memory["pending_field"] = key
     memory["pending_question"] = f"awaiting_intake_{key}"
@@ -488,7 +521,8 @@ async def _handle_booking_intent(sender, memory: dict, bot, db) -> str | None:
                 return None
             memory["pending_field"] = next_field
             memory["pending_question"] = _FIELD_QUESTIONS.get(next_field, f"Could you share your {next_field.replace('_', ' ')}?")
-            return memory["pending_question"]
+            await _send_with_image(sender, bot, _INTAKE_QUESTION_IMAGES.get(next_field, _GENERIC_QUESTION_IMAGE), memory["pending_question"])
+            return None
 
         directive = f"Ask the patient for their {next_field.replace('_', ' ')}, naturally, using everything we already know. Ask only this one thing."
         memory["pending_question"] = directive
@@ -791,10 +825,7 @@ async def handle_turn(sender: str, text: str, bot, db) -> None:
         memory["pending_question"] = None
         proc = get_procedure_by_id(db, bot.id, int(enq_book_match.group(1)))
         if proc:
-            memory["procedure_id"] = proc.id
-            memory["treatment"] = proc.name
-            memory["department"] = proc.department
-            memory["fee_estimate"] = proc.fee_per_session * proc.sessions_required
+            _set_procedure(memory, proc)
         reply = await _handle_booking_intent(sender, memory, bot, db)
         memory_store.append_history(memory, "assistant", reply or "")
         memory_store.save_memory(db, bot.id, sender, memory)
@@ -1002,10 +1033,7 @@ async def handle_turn(sender: str, text: str, bot, db) -> None:
     if proc_match and memory.get("pending_question") == "awaiting_procedure_choice":
         proc = get_procedure_by_id(db, bot.id, int(proc_match.group(1)))
         if proc:
-            memory["procedure_id"] = proc.id
-            memory["treatment"] = proc.name
-            memory["department"] = proc.department
-            memory["fee_estimate"] = proc.fee_per_session * proc.sessions_required
+            _set_procedure(memory, proc)
         memory["pending_question"] = None
         memory["pending_field"] = None
 

@@ -152,6 +152,9 @@ INTAKE_QUESTIONS = {
 }
 
 
+ALL_INTAKE_KEYS = {q["key"] for questions in INTAKE_QUESTIONS.values() for q in questions}
+
+
 def next_intake_question(department: str, memory: dict) -> dict | None:
     """Returns the next unanswered question for this department, or None when
     the whole intake sequence is complete. Conditionally skips per skip_if."""
