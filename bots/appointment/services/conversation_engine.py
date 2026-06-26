@@ -50,6 +50,22 @@ def _image_path(name: str) -> str:
     return os.path.join(IMAGES_DIR, name)
 
 
+# Explicit filenames for department icons. NOTE: do not rely on a bare
+# f"{department}.png" lookup matching an uploaded "Skin.png"/"Hair.png"/etc —
+# Windows filesystems are case-insensitive so a same-named lowercase copy
+# never actually became a distinct file on disk, and git only committed the
+# original capitalized name. On Railway's case-sensitive Linux filesystem the
+# lowercase lookup then silently finds nothing. These filenames are genuinely
+# distinct files (not case-renamed copies) so they exist correctly everywhere.
+_DEPARTMENT_IMAGE_FILES = {
+    "skin": "skin_dept.png",
+    "hair": "hair_dept.png",
+    "laser": "laser_dept.png",
+    "body": "body_dept.png",
+    "injectables": "injectables.png",
+    "dental": "dental.jpeg",
+}
+
 # Keyword -> image file for individual treatments the clinic has uploaded a
 # dedicated photo for. Falls back to no image (just text) when no keyword matches.
 _PROCEDURE_IMAGE_KEYWORDS = [
@@ -243,7 +259,7 @@ async def _send_treatment_list_for_department(sender, bot, db, department: str) 
     await send_interactive_list(
         sender, f"{label} Treatments", f"Choose a treatment in {label}:",
         "View Treatments", [{"title": "Treatments", "rows": rows}], bot,
-        image_path=_image_path(f"{department}.png"),
+        image_path=_image_path(_DEPARTMENT_IMAGE_FILES.get(department, f"{department}.png")),
     )
     return True
 
