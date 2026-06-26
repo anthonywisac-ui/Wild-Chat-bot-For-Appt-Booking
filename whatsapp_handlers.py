@@ -123,8 +123,12 @@ async def send_interactive_list(to, header_text, body_text, button_text, section
     list_header, list_body = header_text, body_text
     if image_path and getattr(bot, "provider", "meta") != "wwebjs":
         caption = f"{header_text}. {body_text}" if header_text and body_text else (header_text or body_text or "")
-        await send_image_v2(to, image_path, bot, caption=caption)
-        list_header, list_body = "Options", "Tap to select:"
+        image_sent = await send_image_v2(to, image_path, bot, caption=caption)
+        if image_sent:
+            # Only downgrade the list's own text to generic scaffold when the
+            # image actually went through — otherwise the question would
+            # vanish entirely if the upload silently failed.
+            list_header, list_body = "Options", "Tap to select:"
 
     payload = {
         "messaging_product": "whatsapp",
