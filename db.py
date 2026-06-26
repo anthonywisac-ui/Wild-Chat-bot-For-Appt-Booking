@@ -201,6 +201,16 @@ class WhatsappBot(Base):
     # If blank, falls back to WWEBJS_BRIDGE_URL env var.
     wwebjs_bridge_url = Column(String, nullable=True)
 
+    # ── Additional channels (Messenger / Instagram) ─────────────────────────
+    # A single bot can serve WhatsApp (via 'provider' above) AND Messenger
+    # AND Instagram simultaneously — these are independent credential sets,
+    # not alternatives to 'provider'. Sender IDs are prefixed ("fb:"/"ig:")
+    # so whatsapp_handlers.py's send_* functions route to the right channel.
+    messenger_page_id      = Column(String, nullable=True)
+    messenger_token        = Column(String, nullable=True)
+    instagram_account_id   = Column(String, nullable=True)
+    instagram_token        = Column(String, nullable=True)
+
 class WebhookEvent(Base):
     __tablename__ = "webhook_events"
     id = Column(Integer, primary_key=True, index=True)
@@ -909,6 +919,10 @@ def migrate_db():
                     "provider TEXT DEFAULT 'meta'",
                     "wwebjs_session TEXT",
                     "wwebjs_bridge_url TEXT",
+                    "messenger_page_id TEXT",
+                    "messenger_token TEXT",
+                    "instagram_account_id TEXT",
+                    "instagram_token TEXT",
                 ]),
                 ("doctors", ["gender TEXT DEFAULT ''"]),
                 ("appointments", [

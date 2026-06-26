@@ -56,12 +56,14 @@ from vapi_backend import router as vapi_router
 from crm_backend import router as crm_router
 from cms.routes import router as cms_router
 from whatsapp_router import router as whatsapp_router
+from messenger_router import router as messenger_router
 from auth import get_current_user
 
 app.include_router(vapi_router)
 app.include_router(crm_router)
 app.include_router(cms_router)
 app.include_router(whatsapp_router)
+app.include_router(messenger_router)
 
 @app.get("/")
 async def root():

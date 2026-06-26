@@ -30,6 +30,20 @@ async def _post_with_retry(url, payload, headers, label: str, retries: int = 1, 
     print(f"{label} failed after {retries + 1} attempt(s): {last_error}")
     return False
 
+def _other_channel_provider(to: str, bot):
+    """If `to` carries a 'fb:'/'ig:' prefix, returns (provider, real_id) for
+    Messenger/Instagram; otherwise (None, to) so the caller falls through to
+    the normal WhatsApp (Meta/wwebjs) path. This lets one bot serve all three
+    channels without conversation_engine.py needing to know which one it's on."""
+    if to.startswith("fb:"):
+        from providers.messenger import MessengerProvider
+        return MessengerProvider(bot), to[3:]
+    if to.startswith("ig:"):
+        from providers.instagram import InstagramProvider
+        return InstagramProvider(bot), to[3:]
+    return None, to
+
+
 # These will be imported from bot-specific modules
 MENU = {}
 t = lambda lang, key: key  # placeholder, will be overridden
@@ -55,8 +69,13 @@ async def send_text_message(to, message):
 async def send_text_message_v2(to, message, bot: WhatsappBot):
     """
     Multi-tenant text sender.
-    Routes to wa-bridge for wwebjs bots, Meta API for all others.
+    Routes to Messenger/Instagram for 'fb:'/'ig:'-prefixed ids, wa-bridge for
+    wwebjs bots, Meta API for everything else.
     """
+    other, real_to = _other_channel_provider(to, bot)
+    if other:
+        return await other.send_text(real_to, message)
+
     if bot and getattr(bot, "provider", "meta") == "wwebjs":
         from providers.wwebjs import WwebjsProvider
         provider = WwebjsProvider(bot)
@@ -74,8 +93,14 @@ async def send_text_message_v2(to, message, bot: WhatsappBot):
 async def send_document_v2(to, file_path, filename, bot: WhatsappBot, caption: str = ""):
     """
     Multi-tenant document sender (used for PDF appointment confirmations).
-    Routes to wa-bridge for wwebjs bots, Meta Cloud API (upload + send) otherwise.
+    Routes to Messenger/Instagram for 'fb:'/'ig:'-prefixed ids (sent as an
+    image-style attachment, since PDFs aren't a clean fit there — good enough
+    for a confirmation doc), wa-bridge for wwebjs bots, Meta Cloud API otherwise.
     """
+    other, real_to = _other_channel_provider(to, bot)
+    if other:
+        return await other.send_file(real_to, file_path, caption)
+
     if bot and getattr(bot, "provider", "meta") == "wwebjs":
         from providers.wwebjs import WwebjsProvider
         provider = WwebjsProvider(bot)
@@ -95,6 +120,10 @@ async def send_image_v2(to, file_path, bot: WhatsappBot, caption: str = ""):
     import os
     if not file_path or not os.path.isfile(file_path):
         return False
+
+    other, real_to = _other_channel_provider(to, bot)
+    if other:
+        return await other.send_image(real_to, file_path, caption)
 
     if bot and getattr(bot, "provider", "meta") == "wwebjs":
         from providers.wwebjs import WwebjsProvider
@@ -120,6 +149,23 @@ async def send_interactive_list(to, header_text, body_text, button_text, section
     scaffold text ("Options" / "Tap to select:") so the real question is
     never shown twice across the two messages.
     """
+    other, real_to = _other_channel_provider(to, bot)
+    if other:
+        other_header, other_body = header_text, body_text
+        if image_path:
+            caption = f"{header_text}. {body_text}" if header_text and body_text else (header_text or body_text or "")
+            if await other.send_image(real_to, image_path, caption):
+                other_header, other_body = "Options", "Tap to select:"
+        return await other.dispatch_payload({
+            "to": real_to, "type": "interactive",
+            "interactive": {
+                "type": "list",
+                "header": {"type": "text", "text": other_header},
+                "body": {"text": other_body},
+                "action": {"button": button_text, "sections": sections},
+            },
+        })
+
     list_header, list_body = header_text, body_text
     if image_path and getattr(bot, "provider", "meta") != "wwebjs":
         caption = f"{header_text}. {body_text}" if header_text and body_text else (header_text or body_text or "")
@@ -160,6 +206,13 @@ async def send_interactive_buttons(to, body_text, buttons, bot: WhatsappBot, ima
     image_path: optional local image file — uploaded and used as the native
     image header so it renders INSIDE this message, above the body text.
     """
+    other, real_to = _other_channel_provider(to, bot)
+    if other:
+        if image_path:
+            await other.send_image(real_to, image_path, body_text)
+            return await other.send_quick_replies(real_to, "Tap to select:", buttons)
+        return await other.send_quick_replies(real_to, body_text, buttons)
+
     interactive = {
         "type": "button",
         "body": {"text": body_text},
