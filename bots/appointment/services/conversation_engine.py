@@ -38,6 +38,15 @@ IMAGES_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "static_im
 
 
 def _image_path(name: str) -> str:
+    """Looks up a brand image by base name, trying common extensions —
+    admins drop files with whatever extension they were exported with."""
+    base, given_ext = os.path.splitext(name)
+    candidates = [given_ext] if given_ext else []
+    candidates += [".png", ".jpg", ".jpeg", ".webp"]
+    for ext in candidates:
+        path = os.path.join(IMAGES_DIR, base + ext)
+        if os.path.isfile(path):
+            return path
     return os.path.join(IMAGES_DIR, name)
 
 from ai.intent import looks_like_question
