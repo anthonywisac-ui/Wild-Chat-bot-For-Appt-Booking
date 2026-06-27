@@ -30,6 +30,24 @@ async def _post_with_retry(url, payload, headers, label: str, retries: int = 1, 
     print(f"{label} failed after {retries + 1} attempt(s): {last_error}")
     return False
 
+# ── ManyChat bridge ──────────────────────────────────────────────────────────
+# ManyChat (and similar "External Request" platforms) work synchronously:
+# they call OUR webhook and expect the reply back in the SAME HTTP response,
+# unlike Meta's APIs where we proactively push messages. So for 'mc:'-prefixed
+# recipients, every send_* function below buffers its message here instead of
+# calling any external API; manychat_router.py reads + clears the buffer after
+# handle_flow() returns and converts it into ManyChat's response JSON.
+_manychat_buffer: dict[str, list] = {}
+
+
+def _mc_buffer(to: str, kind: str, **fields) -> None:
+    _manychat_buffer.setdefault(to, []).append({"kind": kind, **fields})
+
+
+def get_and_clear_manychat_buffer(to: str) -> list:
+    return _manychat_buffer.pop(to, [])
+
+
 def _other_channel_provider(to: str, bot):
     """If `to` carries a 'fb:'/'ig:' prefix, returns (provider, real_id) for
     Messenger/Instagram; otherwise (None, to) so the caller falls through to
@@ -72,6 +90,10 @@ async def send_text_message_v2(to, message, bot: WhatsappBot):
     Routes to Messenger/Instagram for 'fb:'/'ig:'-prefixed ids, wa-bridge for
     wwebjs bots, Meta API for everything else.
     """
+    if to.startswith("mc:"):
+        _mc_buffer(to, "text", text=message)
+        return True
+
     other, real_to = _other_channel_provider(to, bot)
     if other:
         return await other.send_text(real_to, message)
@@ -97,6 +119,10 @@ async def send_document_v2(to, file_path, filename, bot: WhatsappBot, caption: s
     image-style attachment, since PDFs aren't a clean fit there — good enough
     for a confirmation doc), wa-bridge for wwebjs bots, Meta Cloud API otherwise.
     """
+    if to.startswith("mc:"):
+        _mc_buffer(to, "text", text=caption or f"[Document: {filename}]")
+        return True
+
     other, real_to = _other_channel_provider(to, bot)
     if other:
         return await other.send_file(real_to, file_path, caption)
@@ -120,6 +146,11 @@ async def send_image_v2(to, file_path, bot: WhatsappBot, caption: str = ""):
     import os
     if not file_path or not os.path.isfile(file_path):
         return False
+
+    if to.startswith("mc:"):
+        if caption:
+            _mc_buffer(to, "text", text=caption)
+        return True
 
     other, real_to = _other_channel_provider(to, bot)
     if other:
@@ -149,6 +180,13 @@ async def send_interactive_list(to, header_text, body_text, button_text, section
     scaffold text ("Options" / "Tap to select:") so the real question is
     never shown twice across the two messages.
     """
+    if to.startswith("mc:"):
+        rows = [row for section in sections for row in section.get("rows", [])]
+        _mc_buffer(to, "list", header=header_text, body=body_text, options=[
+            {"id": r["id"], "title": r["title"], "description": r.get("description", "")} for r in rows
+        ])
+        return True
+
     other, real_to = _other_channel_provider(to, bot)
     if other:
         other_header, other_body = header_text, body_text
@@ -206,6 +244,10 @@ async def send_interactive_buttons(to, body_text, buttons, bot: WhatsappBot, ima
     image_path: optional local image file — uploaded and used as the native
     image header so it renders INSIDE this message, above the body text.
     """
+    if to.startswith("mc:"):
+        _mc_buffer(to, "buttons", body=body_text, options=[{"id": b["id"], "title": b["title"]} for b in buttons])
+        return True
+
     other, real_to = _other_channel_provider(to, bot)
     if other:
         if image_path:
