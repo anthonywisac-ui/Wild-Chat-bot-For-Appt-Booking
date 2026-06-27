@@ -9,3 +9,5 @@ data/
 vector_store/
 wa-bridge/sessions/
 *.pdf
+dev_test.db
+route_test.db

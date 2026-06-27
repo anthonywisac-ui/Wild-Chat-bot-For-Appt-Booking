@@ -232,6 +232,22 @@ def create_initial_admin():
     except Exception as e:
         logger.warning(f"Auto-setup failed: {e}")
 
+# ========== CRM dashboard client-side routes ==========
+# The Next.js static export (web/) builds each route as {route}/index.html
+# (next.config.ts sets trailingSlash). In-app navigation is handled by
+# Next's own client router, but a hard refresh or direct link to e.g.
+# /overview needs the server to know how to serve it too. This catch-all is
+# registered last, so it only runs for paths nothing else above matched.
+@app.get("/{full_path:path}")
+async def serve_dashboard_route(full_path: str):
+    candidate = os.path.join(static_dir, full_path, "index.html")
+    if os.path.exists(candidate):
+        return FileResponse(candidate)
+    index_path = os.path.join(static_dir, "index.html")
+    if os.path.exists(index_path):
+        return FileResponse(index_path)
+    raise HTTPException(404, "Not found")
+
 if __name__ == "__main__":
     port = int(os.getenv("PORT", 8000))
     uvicorn.run("main:app", host="0.0.0.0", port=port, reload=False)

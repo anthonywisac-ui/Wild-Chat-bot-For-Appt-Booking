@@ -1,0 +1,44 @@
+@import "tailwindcss";
+
+:root {
+  --bg: #F5F7FA;
+  --ink: #111827;
+  --ink-muted: #6B7280;
+  --ink-faint: #9CA3AF;
+  --card: #FFFFFF;
+  --border: #ECECEC;
+  --primary: #4F46E5;
+  --primary-dark: #4338CA;
+  --primary-soft: #EEF2FF;
+  --emerald: #15803D;
+  --emerald-soft: #E3F8E9;
+  --amber: #B45309;
+  --amber-soft: #FCEFB3;
+  --pink: #BE185D;
+  --pink-soft: #FCE0EB;
+  --shadow-soft: 0 10px 40px rgba(15, 23, 42, 0.06);
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-ink: var(--ink);
+  --color-ink-muted: var(--ink-muted);
+  --color-ink-faint: var(--ink-faint);
+  --color-card: var(--card);
+  --color-border: var(--border);
+  --color-primary: var(--primary);
+  --color-primary-dark: var(--primary-dark);
+  --color-primary-soft: var(--primary-soft);
+  --color-emerald: var(--emerald);
+  --color-emerald-soft: var(--emerald-soft);
+  --color-amber: var(--amber);
+  --color-amber-soft: var(--amber-soft);
+  --color-pink: var(--pink);
+  --color-pink-soft: var(--pink-soft);
+  --font-sans: var(--font-jakarta);
+  --shadow-soft: var(--shadow-soft);
+}
+
+body {
+  background: var(--bg);
+}
