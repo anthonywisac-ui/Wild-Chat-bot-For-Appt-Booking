@@ -104,11 +104,6 @@ class ManychatProvider:
             "data": {"version": "v2", "content": content},
             "message_tag": "ACCOUNT_UPDATE",
         }
-        logger.warning(
-            f"[ManychatProvider][DEBUG] token_len={len(self.token)} "
-            f"starts={self.token[:4]!r} ends={self.token[-4:]!r} "
-            f"has_whitespace={self.token != self.token.strip()}"
-        )
         headers = {"Authorization": f"Bearer {self.token}", "Content-Type": "application/json"}
         try:
             session = await SharedSession.get_session()
