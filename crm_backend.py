@@ -10,7 +10,7 @@ import logging
 import requests
 
 from auth import get_current_user, require_admin
-from db import get_db, User, WhatsappBot, Contact, Deal, Call, VapiAgent, AuditLog, BotConfigAudit, AdminSetting, ChatHistory, BotEventLog, log_bot_event, Reservation, SaleRecord, BotPlugin
+from db import get_db, User, WhatsappBot, Contact, Deal, Call, VapiAgent, AuditLog, BotConfigAudit, AdminSetting, ChatHistory, BotEventLog, log_bot_event, Reservation, SaleRecord, BotPlugin, Appointment, Doctor, Lead
 
 router = APIRouter(prefix="/api/crm", tags=["CRM"])
 logger = logging.getLogger(__name__)
@@ -478,6 +478,124 @@ def delete_bot_api(bot_id: int, current_user: User = Depends(get_current_user), 
     log_audit(db, current_user.id, "DELETE_BOT", f"Bot deleted: {bot_name}")
     return {"status": "deleted"}
 
+# ========== Appointments / Leads / Doctors (owner-scoped, for the dashboard) ==========
+def _get_owned_bot(bot_id: int, current_user: User, db: Session) -> WhatsappBot:
+    bot = db.query(WhatsappBot).filter(WhatsappBot.id == bot_id, WhatsappBot.owner_id == current_user.id).first()
+    if not bot:
+        raise HTTPException(404, "Bot not found")
+    return bot
+
+@router.get("/bots/{bot_id}/appointments")
+def list_appointments_api(
+    bot_id: int,
+    status: Optional[str] = None,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    limit: int = 50,
+    offset: int = 0,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    _get_owned_bot(bot_id, current_user, db)
+    q = db.query(Appointment).filter(Appointment.bot_id == bot_id)
+    if status:
+        q = q.filter(Appointment.status == status)
+    if date_from:
+        q = q.filter(Appointment.appointment_date >= date_from)
+    if date_to:
+        q = q.filter(Appointment.appointment_date <= date_to)
+    total = q.count()
+    rows = q.order_by(Appointment.appointment_date, Appointment.appointment_time).offset(offset).limit(min(limit, 200)).all()
+
+    doctor_ids = {r.doctor_id for r in rows if r.doctor_id}
+    doctors_by_id = {d.id: d.name for d in db.query(Doctor).filter(Doctor.id.in_(doctor_ids)).all()} if doctor_ids else {}
+
+    return {
+        "total": total,
+        "appointments": [
+            {
+                "id": r.id,
+                "customer_name": r.customer_name,
+                "customer_phone": r.customer_phone,
+                "service": r.service,
+                "department": r.department,
+                "doctor_name": doctors_by_id.get(r.doctor_id),
+                "appointment_date": r.appointment_date,
+                "appointment_time": r.appointment_time,
+                "status": r.status,
+                "consultation_fee": r.consultation_fee,
+            }
+            for r in rows
+        ],
+    }
+
+class AppointmentStatusUpdate(BaseModel):
+    status: str
+
+@router.patch("/bots/{bot_id}/appointments/{appointment_id}")
+def update_appointment_status_api(
+    bot_id: int,
+    appointment_id: int,
+    body: AppointmentStatusUpdate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    _get_owned_bot(bot_id, current_user, db)
+    appt = db.query(Appointment).filter(Appointment.id == appointment_id, Appointment.bot_id == bot_id).first()
+    if not appt:
+        raise HTTPException(404, "Appointment not found")
+    appt.status = body.status
+    appt.updated_at = datetime.utcnow()
+    db.commit()
+    return {"status": "updated", "id": appt.id, "new_status": appt.status}
+
+@router.get("/bots/{bot_id}/leads")
+def list_leads_api(
+    bot_id: int,
+    status: Optional[str] = None,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    _get_owned_bot(bot_id, current_user, db)
+    q = db.query(Lead).filter(Lead.bot_id == bot_id)
+    if status:
+        q = q.filter(Lead.status == status)
+    rows = q.order_by(Lead.created_at.desc()).limit(200).all()
+    return [
+        {
+            "id": r.id,
+            "phone": r.phone,
+            "goal": r.goal,
+            "concern": r.concern,
+            "treatment_interest": r.treatment_interest,
+            "budget_level": r.budget_level,
+            "lead_quality": r.lead_quality,
+            "status": r.status,
+            "estimated_value": r.estimated_value,
+            "created_at": r.created_at,
+        }
+        for r in rows
+    ]
+
+@router.get("/bots/{bot_id}/doctors")
+def list_doctors_api(
+    bot_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    _get_owned_bot(bot_id, current_user, db)
+    rows = db.query(Doctor).filter(Doctor.bot_id == bot_id, Doctor.active == True).all()
+    return [
+        {
+            "id": r.id,
+            "department": r.department,
+            "name": r.name,
+            "gender": r.gender,
+            "consultation_fee": r.consultation_fee,
+        }
+        for r in rows
+    ]
+
 # ========== Stats & Overview ==========
 @router.get("/stats")
 def get_stats_api(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
@@ -502,6 +620,20 @@ def get_stats_api(current_user: User = Depends(get_current_user), db: Session = 
         Reservation.created_at >= today_start
     ).count()
 
+    # Appointment-bot revenue series (last 7 days, by appointment_date) — feeds the
+    # Overview dashboard's revenue chart. Cancelled appointments don't count as revenue.
+    appt_q = db.query(Appointment).filter(Appointment.owner_id == current_user.id)
+    revenue_series = []
+    for i in range(6, -1, -1):
+        day = today - timedelta(days=i)
+        day_str = day.strftime("%Y-%m-%d")
+        day_appts = appt_q.filter(Appointment.appointment_date == day_str, Appointment.status != "Cancelled").all()
+        revenue_series.append({
+            "date": day_str,
+            "revenue": round(sum(a.consultation_fee or 0 for a in day_appts), 2),
+        })
+    appointments_today = appt_q.filter(Appointment.appointment_date == today.strftime("%Y-%m-%d")).count()
+
     return {
         "contacts": contacts_count,
         "deals": deals_count,
@@ -519,6 +651,9 @@ def get_stats_api(current_user: User = Depends(get_current_user), db: Session = 
         "dine_in_today": _count(sales_today_q, "dine_in"),
         "car_delivery_today": _count(sales_today_q, "car_delivery"),
         "reservations_today": reservations_today,
+        # Appointment-bot fields (Overview dashboard)
+        "appointments_today": appointments_today,
+        "revenue_series": revenue_series,
     }
 
 @router.get("/user/overview")
