@@ -322,6 +322,7 @@ def update_bot_api(bot_id: int, data: dict, current_user: User = Depends(get_cur
         "vapi_api_key", "openai_api_key", "gemini_api_key", "groq_api_key", "minimax_api_key", "anthropic_api_key",
         "forwarding_url",
         "messenger_page_id", "messenger_token", "instagram_account_id", "instagram_token",
+        "manychat_api_key",
     }
 
     try:
@@ -333,7 +334,7 @@ def update_bot_api(bot_id: int, data: dict, current_user: User = Depends(get_cur
 
                 if old_val != new_val:
                     # Bug #2 & #8: Log Config Audit with masking
-                    is_sensitive = k in ["meta_token", "ai_api_key", "vapi_api_key", "openai_api_key", "gemini_api_key", "groq_api_key", "minimax_api_key", "anthropic_api_key", "openrouter_api_key", "messenger_token", "instagram_token"]
+                    is_sensitive = k in ["meta_token", "ai_api_key", "vapi_api_key", "openai_api_key", "gemini_api_key", "groq_api_key", "minimax_api_key", "anthropic_api_key", "openrouter_api_key", "messenger_token", "instagram_token", "manychat_api_key"]
                     audit = BotConfigAudit(
                         bot_id=bot.id, user_id=current_user.id,
                         field=k, 

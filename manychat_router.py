@@ -1,17 +1,16 @@
 # manychat_router.py
 #
-# Synchronous bridge for ManyChat's "External Request" action. ManyChat
-# (already Meta-approved, so it bypasses our own App Review/Business
-# Verification wait) calls this endpoint with the subscriber id + their
-# message text, and expects the bot's reply back in THE SAME HTTP response —
-# unlike Meta's own APIs where we proactively push messages out.
+# Incoming-message bridge for ManyChat. ManyChat (already Meta-approved, so
+# it bypasses our own App Review/Business Verification wait) calls this
+# endpoint via a flow's "External Request" action whenever a subscriber
+# messages the connected Page/Instagram account.
 #
-# Internally this still runs the exact same bots.appointment.flow.handle_flow()
-# as WhatsApp/Messenger/Instagram. The 'mc:' sender prefix makes
-# whatsapp_handlers.py's send_* functions buffer their output (see
-# _mc_buffer/get_and_clear_manychat_buffer in whatsapp_handlers.py) instead of
-# calling an external API, and this router converts that buffer into
-# ManyChat's expected response JSON.
+# This only handles the INCOMING side — telling us a message arrived.
+# The actual reply goes OUT asynchronously through providers/manychat.py's
+# direct API calls (ManychatProvider, used via the 'mc:' sender prefix in
+# whatsapp_handlers.py), not through this endpoint's HTTP response. That
+# avoids ManyChat's External Request timeout if the bot takes a moment to
+# think — we just need to ack quickly here.
 
 import logging
 
@@ -19,37 +18,10 @@ from fastapi import APIRouter, Request, Depends
 from sqlalchemy.orm import Session
 
 from db import get_db, WhatsappBot
-from whatsapp_handlers import get_and_clear_manychat_buffer
-from providers.wwebjs import store_menu_map, get_menu_map
+from providers.wwebjs import get_menu_map
 
 router = APIRouter(tags=["ManyChat Bridge"])
 logger = logging.getLogger(__name__)
-
-
-def _buffer_to_manychat_response(buffered: list) -> dict:
-    """Converts our internal buffer (text/buttons/list messages) into
-    ManyChat's 'Dynamic Block' v2 response format, and returns a title->id
-    map for the LAST interactive message (so the next reply can be translated
-    back to the real button/row id even though ManyChat quick replies send
-    back the tapped title, not an arbitrary payload)."""
-    messages = []
-    menu_map = {}
-
-    for item in buffered:
-        if item["kind"] == "text":
-            if item["text"]:
-                messages.append({"type": "text", "text": item["text"]})
-        elif item["kind"] in ("buttons", "list"):
-            options = item["options"]
-            menu_map = {opt["title"]: opt["id"] for opt in options}
-            lead = item.get("body") or item.get("header") or "Please choose:"
-            quick_replies = [{"title": opt["title"][:20]} for opt in options[:13]]
-            messages.append({"type": "text", "text": lead, "quick_replies": quick_replies})
-
-    if not messages:
-        messages = [{"type": "text", "text": "..."}]
-
-    return {"version": "v2", "content": {"messages": messages}}, menu_map
 
 
 @router.post("/manychat/webhook")
@@ -59,8 +31,8 @@ async def manychat_webhook(request: Request, db: Session = Depends(get_db)):
       Method: POST
       URL: https://<your-domain>/manychat/webhook
       Body (JSON): {"bot_id": <your bot id>, "sender": "{{user_id}}", "text": "{{last_text_input}}"}
-    Then use the response's content.messages in a 'Set messages from JSON' /
-    Dynamic Block step to actually display the reply.
+    No further ManyChat-side step is needed — the bot's reply arrives via
+    ManyChat's own messaging API directly, not through this response.
     """
     data = await request.json()
     bot_id = data.get("bot_id")
@@ -68,17 +40,19 @@ async def manychat_webhook(request: Request, db: Session = Depends(get_db)):
     text = (data.get("text") or "").strip()
 
     if not bot_id or not sender or not text:
-        return {"version": "v2", "content": {"messages": [{"type": "text", "text": "Sorry, something went wrong."}]}}
+        return {"status": "ignored"}
 
     bot = db.query(WhatsappBot).filter(WhatsappBot.id == int(bot_id)).first()
     if not bot:
-        return {"version": "v2", "content": {"messages": [{"type": "text", "text": "Bot not found."}]}}
+        logger.warning(f"[manychat] no bot found for bot_id={bot_id}")
+        return {"status": "ignored"}
 
     prefixed_sender = f"mc:{sender}"
 
-    # A quick-reply tap arrives as the tapped title text, not an id — translate
-    # it back using the map saved from our last interactive message, exactly
-    # like the numbered-text fallback wwebjs/Messenger/Instagram already use.
+    # A quick-reply tap arrives as the tapped TITLE text, not an id —
+    # translate it back using the map saved from our last interactive
+    # message, the same way the numbered-text fallback already works for
+    # wwebjs/Messenger/Instagram.
     stored_map = get_menu_map("manychat", prefixed_sender)
     if stored_map and text in stored_map:
         text = stored_map[text]
@@ -86,9 +60,4 @@ async def manychat_webhook(request: Request, db: Session = Depends(get_db)):
     from bots.appointment.flow import handle_flow
     await handle_flow(prefixed_sender, text, bot, db)
 
-    buffered = get_and_clear_manychat_buffer(prefixed_sender)
-    response, menu_map = _buffer_to_manychat_response(buffered)
-    if menu_map:
-        store_menu_map("manychat", prefixed_sender, menu_map)
-
-    return response
+    return {"status": "ok"}

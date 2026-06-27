@@ -210,6 +210,10 @@ class WhatsappBot(Base):
     messenger_token        = Column(String, nullable=True)
     instagram_account_id   = Column(String, nullable=True)
     instagram_token        = Column(String, nullable=True)
+    # ManyChat bridge — bypasses Meta's own Instagram App Review wait by
+    # relaying through ManyChat (already Meta-approved). This is ManyChat's
+    # own "Profile Scoped Public API" key, used to push replies directly.
+    manychat_api_key       = Column(String, nullable=True)
 
 class WebhookEvent(Base):
     __tablename__ = "webhook_events"
@@ -923,6 +927,7 @@ def migrate_db():
                     "messenger_token TEXT",
                     "instagram_account_id TEXT",
                     "instagram_token TEXT",
+                    "manychat_api_key TEXT",
                 ]),
                 ("doctors", ["gender TEXT DEFAULT ''"]),
                 ("appointments", [
