@@ -61,6 +61,11 @@ export const api = {
     ),
   stats: () => request<Stats>("/api/crm/stats"),
   bots: () => request<BotSummary[]>("/api/crm/bots/whatsapp"),
+  updateBot: (botId: number, fields: Record<string, string | number>) =>
+    request<{ status: string; id: number; changes: string[] }>(
+      `/api/crm/bots/whatsapp/${botId}`,
+      { method: "PUT", body: JSON.stringify(fields) }
+    ),
   appointments: (botId: number, params: Record<string, string | number> = {}) => {
     const qs = new URLSearchParams(
       Object.entries(params).map(([k, v]) => [k, String(v)])
@@ -69,13 +74,25 @@ export const api = {
       `/api/crm/bots/${botId}/appointments${qs ? `?${qs}` : ""}`
     );
   },
-  updateAppointmentStatus: (botId: number, appointmentId: number, status: string) =>
-    request<{ status: string; id: number; new_status: string }>(
+  updateAppointment: (
+    botId: number,
+    appointmentId: number,
+    body: { status?: string; reminder_sent?: boolean }
+  ) =>
+    request<{ status: string; id: number; new_status: string; reminder_sent: boolean }>(
       `/api/crm/bots/${botId}/appointments/${appointmentId}`,
-      { method: "PATCH", body: JSON.stringify({ status }) }
+      { method: "PATCH", body: JSON.stringify(body) }
     ),
+  updateAppointmentStatus: (botId: number, appointmentId: number, status: string) =>
+    api.updateAppointment(botId, appointmentId, { status }),
   leads: (botId: number) => request<Lead[]>(`/api/crm/bots/${botId}/leads`),
   doctors: (botId: number) => request<Doctor[]>(`/api/crm/bots/${botId}/doctors`),
+  procedures: (botId: number) => request<Procedure[]>(`/api/crm/bots/${botId}/procedures`),
+  patients: (botId: number) => request<Patient[]>(`/api/crm/bots/${botId}/patients`),
+  seedDemoData: (botId: number) =>
+    request<{ message: string }>(`/api/crm/bots/${botId}/seed-demo-data`, {
+      method: "POST",
+    }),
 };
 
 export interface Stats {
@@ -89,11 +106,19 @@ export interface BotSummary {
   bot_type: string;
   business_name: string;
   status: string;
-  messenger_page_id?: string | null;
-  instagram_account_id?: string | null;
-  manychat_api_key?: string | null;
+  language?: string | null;
+  ai_provider?: string | null;
+  system_prompt?: string | null;
+  provider?: string | null;
+  meta_token?: string | null;
+  phone_number_id?: string | null;
   waba_id?: string | null;
   wwebjs_session?: string | null;
+  messenger_page_id?: string | null;
+  messenger_token?: string | null;
+  instagram_account_id?: string | null;
+  instagram_token?: string | null;
+  manychat_api_key?: string | null;
 }
 
 export interface Appointment {
@@ -107,6 +132,7 @@ export interface Appointment {
   appointment_time: string;
   status: string;
   consultation_fee: number;
+  reminder_sent?: boolean;
 }
 
 export interface Lead {
@@ -127,5 +153,35 @@ export interface Doctor {
   department: string;
   name: string;
   gender: string;
+  bio?: string | null;
   consultation_fee: number;
 }
+
+export interface Procedure {
+  id: number;
+  department: string;
+  name: string;
+  sessions_required: number;
+  fee_per_session: number;
+  package_tier: string | null;
+  description: string | null;
+}
+
+export interface Patient {
+  id: number;
+  phone: string;
+  name: string;
+  age: string | null;
+  gender: string | null;
+  city: string | null;
+  created_at: string;
+}
+
+export const DEPARTMENT_LABELS: Record<string, string> = {
+  skin: "Skin",
+  hair: "Hair",
+  laser: "Laser",
+  body: "Body",
+  dental: "Dental",
+  injectables: "Injectables",
+};

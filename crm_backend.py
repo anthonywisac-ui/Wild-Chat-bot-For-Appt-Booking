@@ -10,7 +10,7 @@ import logging
 import requests
 
 from auth import get_current_user, require_admin
-from db import get_db, User, WhatsappBot, Contact, Deal, Call, VapiAgent, AuditLog, BotConfigAudit, AdminSetting, ChatHistory, BotEventLog, log_bot_event, Reservation, SaleRecord, BotPlugin, Appointment, Doctor, Lead
+from db import get_db, User, WhatsappBot, Contact, Deal, Call, VapiAgent, AuditLog, BotConfigAudit, AdminSetting, ChatHistory, BotEventLog, log_bot_event, Reservation, SaleRecord, BotPlugin, Appointment, Doctor, Lead, Procedure, PatientProfile
 
 router = APIRouter(prefix="/api/crm", tags=["CRM"])
 logger = logging.getLogger(__name__)
@@ -530,7 +530,8 @@ def list_appointments_api(
     }
 
 class AppointmentStatusUpdate(BaseModel):
-    status: str
+    status: Optional[str] = None
+    reminder_sent: Optional[bool] = None
 
 @router.patch("/bots/{bot_id}/appointments/{appointment_id}")
 def update_appointment_status_api(
@@ -544,10 +545,13 @@ def update_appointment_status_api(
     appt = db.query(Appointment).filter(Appointment.id == appointment_id, Appointment.bot_id == bot_id).first()
     if not appt:
         raise HTTPException(404, "Appointment not found")
-    appt.status = body.status
+    if body.status is not None:
+        appt.status = body.status
+    if body.reminder_sent is not None:
+        appt.reminder_sent = body.reminder_sent
     appt.updated_at = datetime.utcnow()
     db.commit()
-    return {"status": "updated", "id": appt.id, "new_status": appt.status}
+    return {"status": "updated", "id": appt.id, "new_status": appt.status, "reminder_sent": appt.reminder_sent}
 
 @router.get("/bots/{bot_id}/leads")
 def list_leads_api(
@@ -591,10 +595,217 @@ def list_doctors_api(
             "department": r.department,
             "name": r.name,
             "gender": r.gender,
+            "bio": r.bio,
             "consultation_fee": r.consultation_fee,
         }
         for r in rows
     ]
+
+@router.get("/bots/{bot_id}/procedures")
+def list_procedures_api(
+    bot_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    _get_owned_bot(bot_id, current_user, db)
+    rows = db.query(Procedure).filter(Procedure.bot_id == bot_id, Procedure.active == True).all()
+    return [
+        {
+            "id": r.id,
+            "department": r.department,
+            "name": r.name,
+            "sessions_required": r.sessions_required,
+            "fee_per_session": r.fee_per_session,
+            "package_tier": r.package_tier,
+            "description": r.description,
+        }
+        for r in rows
+    ]
+
+@router.get("/bots/{bot_id}/patients")
+def list_patients_api(
+    bot_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    _get_owned_bot(bot_id, current_user, db)
+    rows = db.query(PatientProfile).filter(PatientProfile.bot_id == bot_id).order_by(PatientProfile.created_at.desc()).limit(200).all()
+    return [
+        {
+            "id": r.id,
+            "phone": r.phone,
+            "name": r.name,
+            "age": r.age,
+            "gender": r.gender,
+            "city": r.city,
+            "created_at": r.created_at,
+        }
+        for r in rows
+    ]
+
+# ========== Demo data seeding (owner-triggered, idempotent by name) ==========
+_DEMO_DEPARTMENTS = {
+    "skin": {
+        "doctors": [("Dr Laila Khan", "female", 60), ("Dr Hamid Raza", "male", 55)],
+        "procedures": [
+            ("HydraFacial", 1, 80, None),
+            ("Chemical Peel", 1, 65, None),
+            ("Acne Treatment Package", 6, 50, "package"),
+        ],
+    },
+    "hair": {
+        "doctors": [("Dr Sara Naveed", "female", 60)],
+        "procedures": [
+            ("PRP Hair Therapy", 4, 120, "package"),
+            ("Hair Loss Consultation", 1, 40, None),
+        ],
+    },
+    "laser": {
+        "doctors": [("Dr Omar Faisal", "male", 55)],
+        "procedures": [
+            ("Laser Hair Removal - Full Body", 6, 90, "package"),
+            ("Laser Hair Removal - Underarms", 4, 35, "package"),
+        ],
+    },
+    "body": {
+        "doctors": [("Dr Ayesha Tariq", "female", 65)],
+        "procedures": [
+            ("Body Contouring", 4, 150, "package"),
+            ("Cellulite Reduction", 6, 100, "package"),
+        ],
+    },
+    "dental": {
+        "doctors": [("Dr Jamshed Ali", "male", 50)],
+        "procedures": [
+            ("Teeth Whitening", 1, 70, None),
+            ("Smile Design", 1, 300, None),
+            ("Dental Cleaning", 1, 30, None),
+        ],
+    },
+    "injectables": {
+        "doctors": [("Dr Sara Naveed", "female", 60)],
+        "procedures": [
+            ("Lip Fillers", 1, 200, None),
+            ("Botox", 1, 250, None),
+        ],
+    },
+}
+
+_DEMO_PATIENTS = [
+    ("Sara Khan", "+971501234567", 29, "female", "Dubai"),
+    ("Mohammed Ali", "+971502345678", 34, "male", "Abu Dhabi"),
+    ("Rabia Hussain", "+971503456789", 27, "female", "Dubai"),
+    ("Ayesha Malik", "+971504567890", 31, "female", "Sharjah"),
+    ("Hamza Zubair", "+971505678901", 38, "male", "Dubai"),
+    ("Fatima Noor", "+971506789012", 24, "female", "Dubai"),
+    ("Bilal Ahmed", "+971507890123", 41, "male", "Ajman"),
+]
+
+@router.post("/bots/{bot_id}/seed-demo-data")
+def seed_demo_data_api(
+    bot_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """One-time, idempotent seed of doctors/procedures across every department
+    plus a spread of leads/patients/appointments so a fresh dashboard has
+    something real to show in a client demo. Safe to call more than once —
+    skips any doctor/procedure that already exists by name, and only ADDS
+    leads/appointments, never deletes existing ones."""
+    bot = _get_owned_bot(bot_id, current_user, db)
+
+    import random
+    random.seed(bot_id)  # deterministic-ish spread across repeated calls
+
+    doctors_created, procedures_created = 0, 0
+    doctor_by_name: dict[str, Doctor] = {}
+    procedures_by_dept: dict[str, list[Procedure]] = {}
+
+    for dept, cfg in _DEMO_DEPARTMENTS.items():
+        for name, gender, fee in cfg["doctors"]:
+            existing = db.query(Doctor).filter(Doctor.bot_id == bot_id, Doctor.name == name).first()
+            if not existing:
+                existing = Doctor(bot_id=bot_id, department=dept, name=name, gender=gender, consultation_fee=fee, active=True)
+                db.add(existing)
+                db.commit()
+                db.refresh(existing)
+                doctors_created += 1
+            doctor_by_name[name] = existing
+
+        procedures_by_dept[dept] = []
+        for name, sessions, fee, tier in cfg["procedures"]:
+            existing = db.query(Procedure).filter(Procedure.bot_id == bot_id, Procedure.name == name).first()
+            if not existing:
+                existing = Procedure(
+                    bot_id=bot_id, department=dept, name=name,
+                    sessions_required=sessions, fee_per_session=fee,
+                    package_tier=tier, active=True,
+                )
+                db.add(existing)
+                db.commit()
+                db.refresh(existing)
+                procedures_created += 1
+            procedures_by_dept[dept].append(existing)
+
+    patients_created = 0
+    for name, phone, age, gender, city in _DEMO_PATIENTS:
+        existing = db.query(PatientProfile).filter(PatientProfile.bot_id == bot_id, PatientProfile.phone == phone).first()
+        if not existing:
+            db.add(PatientProfile(bot_id=bot_id, phone=phone, name=name, age=str(age), gender=gender, city=city))
+            patients_created += 1
+    db.commit()
+
+    lead_qualities = ["high", "medium", "low"]
+    lead_statuses = ["new", "qualified", "booked", "lost"]
+    leads_created = 0
+    for name, phone, age, gender, city in _DEMO_PATIENTS:
+        if db.query(Lead).filter(Lead.bot_id == bot_id, Lead.phone == phone).first():
+            continue
+        dept = random.choice(list(_DEMO_DEPARTMENTS.keys()))
+        proc = random.choice(procedures_by_dept[dept])
+        db.add(Lead(
+            bot_id=bot_id, phone=phone, goal="booking",
+            concern=f"Interested in {proc.name}", treatment_interest=proc.name,
+            budget_level=random.choice(["low", "medium", "high"]),
+            lead_quality=random.choice(lead_qualities),
+            status=random.choice(lead_statuses),
+            estimated_value=proc.fee_per_session * proc.sessions_required,
+        ))
+        leads_created += 1
+    db.commit()
+
+    appt_statuses_weighted = ["Confirmed"] * 5 + ["Completed"] * 3 + ["Scheduled"] * 2 + ["Cancelled"]
+    appointments_created = 0
+    today = datetime.utcnow().date()
+    for day_offset in range(-7, 8):
+        day = today + timedelta(days=day_offset)
+        for _ in range(random.randint(0, 2)):
+            patient_name, phone, age, gender, city = random.choice(_DEMO_PATIENTS)
+            dept = random.choice(list(_DEMO_DEPARTMENTS.keys()))
+            proc = random.choice(procedures_by_dept[dept])
+            doc = doctor_by_name[random.choice(_DEMO_DEPARTMENTS[dept]["doctors"])[0]]
+            hour = random.choice([10, 11, 13, 14, 15, 16, 17])
+            db.add(Appointment(
+                owner_id=current_user.id, bot_id=bot_id,
+                customer_phone=phone, customer_name=patient_name,
+                service=proc.name, department=dept, doctor_id=doc.id, procedure_id=proc.id,
+                consultation_fee=proc.fee_per_session,
+                appointment_date=day.strftime("%Y-%m-%d"),
+                appointment_time=f"{hour:02d}:00",
+                status=random.choice(appt_statuses_weighted),
+                reminder_sent=day_offset < 0,
+            ))
+            appointments_created += 1
+    db.commit()
+
+    return {
+        "message": "Demo data seeded",
+        "doctors_created": doctors_created,
+        "procedures_created": procedures_created,
+        "patients_created": patients_created,
+        "leads_created": leads_created,
+        "appointments_created": appointments_created,
+    }
 
 # ========== Stats & Overview ==========
 @router.get("/stats")

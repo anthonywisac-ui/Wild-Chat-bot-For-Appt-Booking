@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { motion } from "framer-motion";
 import {
   Plus,
   CalendarDays,
@@ -9,7 +10,7 @@ import {
   ArrowRight,
   MessageCircle,
 } from "lucide-react";
-import { DashboardShell } from "@/components/DashboardShell";
+import { useDashboard } from "@/lib/dashboard-context";
 import { RevenueChart } from "@/components/RevenueChart";
 import { StatusPill } from "@/components/StatusPill";
 import { api, type Stats, type Appointment, type Lead, type Doctor } from "@/lib/api";
@@ -17,22 +18,7 @@ import { api, type Stats, type Appointment, type Lead, type Doctor } from "@/lib
 const QUALITY_SCORE: Record<string, number> = { low: 35, medium: 65, high: 90 };
 
 export default function OverviewPage() {
-  return (
-    <DashboardShell>
-      {({ username, bot }) => <OverviewContent username={username} botId={bot.id} bot={bot} />}
-    </DashboardShell>
-  );
-}
-
-function OverviewContent({
-  username,
-  botId,
-  bot,
-}: {
-  username: string;
-  botId: number;
-  bot: { messenger_page_id?: string | null; instagram_account_id?: string | null; manychat_api_key?: string | null; waba_id?: string | null; wwebjs_session?: string | null };
-}) {
+  const { username, bot } = useDashboard();
   const [stats, setStats] = useState<Stats | null>(null);
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [leads, setLeads] = useState<Lead[]>([]);
@@ -43,9 +29,9 @@ function OverviewContent({
     (async () => {
       const [s, a, l, d] = await Promise.all([
         api.stats(),
-        api.appointments(botId, { limit: 5 }),
-        api.leads(botId),
-        api.doctors(botId),
+        api.appointments(bot.id, { limit: 5 }),
+        api.leads(bot.id),
+        api.doctors(bot.id),
       ]);
       setStats(s);
       setAppointments(a.appointments);
@@ -53,10 +39,10 @@ function OverviewContent({
       setDoctors(d);
       setLoading(false);
     })();
-  }, [botId]);
+  }, [bot.id]);
 
   async function confirmAppointment(id: number) {
-    await api.updateAppointmentStatus(botId, id, "Confirmed");
+    await api.updateAppointmentStatus(bot.id, id, "Confirmed");
     setAppointments((prev) =>
       prev.map((a) => (a.id === id ? { ...a, status: "Confirmed" } : a))
     );
@@ -97,27 +83,34 @@ function OverviewContent({
       </div>
 
       <div className="grid grid-cols-4 gap-3.5 mb-3.5">
-        <div className="col-span-1 bg-primary rounded-2xl p-4 [box-shadow:var(--shadow-soft)] text-white">
+        <motion.div
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="col-span-1 bg-primary rounded-2xl p-4 [box-shadow:var(--shadow-soft)] text-white"
+        >
           <p className="text-xs text-white/70 mb-1">Revenue today</p>
           <p className="text-[26px] font-extrabold">${todaysRevenue.toLocaleString()}</p>
           <div className="mt-1 -mx-1">
             <RevenueChart series={stats.revenue_series} />
           </div>
-        </div>
+        </motion.div>
 
         <StatCard
+          delay={0.05}
           icon={CalendarDays}
           tint="bg-primary-soft text-primary-dark"
           label="Bookings today"
           value={stats.appointments_today}
         />
         <StatCard
+          delay={0.1}
           icon={Users}
           tint="bg-pink-soft text-pink"
           label="New leads"
           value={newLeads}
         />
         <StatCard
+          delay={0.15}
           icon={Stethoscope}
           tint="bg-emerald-soft text-emerald"
           label="Doctors available"
@@ -129,9 +122,12 @@ function OverviewContent({
         <div className="bg-card rounded-2xl p-5 [box-shadow:var(--shadow-soft)]">
           <div className="flex items-baseline justify-between mb-3.5">
             <p className="text-[14.5px] font-bold">Upcoming appointments</p>
-            <button className="text-[12px] font-semibold text-primary flex items-center gap-1">
+            <a
+              href="/appointments"
+              className="text-[12px] font-semibold text-primary flex items-center gap-1"
+            >
               View all <ArrowRight size={12} />
-            </button>
+            </a>
           </div>
 
           {appointments.length === 0 && (
@@ -140,9 +136,12 @@ function OverviewContent({
             </p>
           )}
 
-          {appointments.map((a) => (
-            <div
+          {appointments.map((a, i) => (
+            <motion.div
               key={a.id}
+              initial={{ opacity: 0, x: -6 }}
+              animate={{ opacity: 1, x: 0 }}
+              transition={{ delay: i * 0.04 }}
               className="flex items-center gap-3 py-3 border-b border-border last:border-0"
             >
               <div className="w-9 h-9 rounded-full bg-primary-soft flex items-center justify-center text-[11px] font-bold text-primary-dark shrink-0">
@@ -163,7 +162,7 @@ function OverviewContent({
                   Confirm
                 </button>
               )}
-            </div>
+            </motion.div>
           ))}
         </div>
 
@@ -209,19 +208,26 @@ function StatCard({
   tint,
   label,
   value,
+  delay = 0,
 }: {
   icon: typeof CalendarDays;
   tint: string;
   label: string;
   value: number;
+  delay?: number;
 }) {
   return (
-    <div className="bg-card rounded-2xl p-4 [box-shadow:var(--shadow-soft)] flex flex-col justify-between">
+    <motion.div
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ delay }}
+      className="bg-card rounded-2xl p-4 [box-shadow:var(--shadow-soft)] flex flex-col justify-between"
+    >
       <div className={`w-8 h-8 rounded-[10px] flex items-center justify-center ${tint}`}>
         <Icon size={16} />
       </div>
       <p className="text-[25px] font-extrabold mt-3">{value}</p>
       <p className="text-[11.5px] text-ink-muted">{label}</p>
-    </div>
+    </motion.div>
   );
 }
