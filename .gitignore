@@ -11,3 +11,37 @@ wa-bridge/sessions/
 *.pdf
 dev_test.db
 route_test.db
+route_test2.db
+route_test3.db
+
+# Next.js build output for web/ — Dockerfile builds and copies this into
+# cms/static/ fresh on every deploy (see Dockerfile). Don't commit the
+# generated bundle; only the legacy fallback (index.legacy.*) is tracked.
+web/.next/
+web/out/
+web/node_modules/
+cms/static/_next/
+cms/static/index.html
+cms/static/index.txt
+cms/static/__next.*
+cms/static/404.html
+cms/static/404/
+cms/static/_not-found/
+cms/static/appointments/
+cms/static/bot-settings/
+cms/static/channels/
+cms/static/doctors/
+cms/static/leads/
+cms/static/overview/
+cms/static/packages/
+cms/static/patients/
+cms/static/payments/
+cms/static/reminders/
+cms/static/reports/
+cms/static/treatments/
+cms/static/favicon.ico
+cms/static/file.svg
+cms/static/globe.svg
+cms/static/next.svg
+cms/static/vercel.svg
+cms/static/window.svg

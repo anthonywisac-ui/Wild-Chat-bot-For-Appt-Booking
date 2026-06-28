@@ -240,9 +240,19 @@ def create_initial_admin():
 # registered last, so it only runs for paths nothing else above matched.
 @app.get("/{full_path:path}")
 async def serve_dashboard_route(full_path: str):
-    candidate = os.path.join(static_dir, full_path, "index.html")
-    if os.path.exists(candidate):
-        return FileResponse(candidate)
+    # Next.js asset paths (/_next/static/chunks/*.js, *.css, fonts, etc.) are
+    # real files, not page routes — must be served as-is (FileResponse infers
+    # the correct Content-Type from the extension). Without this check they
+    # fell through to the index.html fallback below and got served as
+    # text/html, which browsers refuse to execute as JS/CSS.
+    file_candidate = os.path.join(static_dir, full_path)
+    if os.path.isfile(file_candidate):
+        return FileResponse(file_candidate)
+
+    page_candidate = os.path.join(static_dir, full_path, "index.html")
+    if os.path.exists(page_candidate):
+        return FileResponse(page_candidate)
+
     index_path = os.path.join(static_dir, "index.html")
     if os.path.exists(index_path):
         return FileResponse(index_path)
