@@ -15,6 +15,7 @@ import {
   ListChecks,
   Settings,
   ChevronRight,
+  UsersRound,
 } from "lucide-react";
 import { clearToken } from "@/lib/api";
 
@@ -36,6 +37,7 @@ const clinicNav = [
 const systemNav = [
   { href: "/channels", label: "Channels", icon: MessageCircle },
   { href: "/reminders", label: "Reminders", icon: Bell },
+  { href: "/team", label: "Team", icon: UsersRound },
   { href: "/bot-settings", label: "Bot settings", icon: Settings },
 ];
 

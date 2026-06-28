@@ -10,7 +10,7 @@ import logging
 import requests
 
 from auth import get_current_user, require_admin
-from db import get_db, User, WhatsappBot, Contact, Deal, Call, VapiAgent, AuditLog, BotConfigAudit, AdminSetting, ChatHistory, BotEventLog, log_bot_event, Reservation, SaleRecord, BotPlugin, Appointment, Doctor, Lead, Procedure, PatientProfile
+from db import get_db, User, WhatsappBot, Contact, Deal, Call, VapiAgent, AuditLog, BotConfigAudit, AdminSetting, ChatHistory, BotEventLog, log_bot_event, Reservation, SaleRecord, BotPlugin, Appointment, Doctor, Lead, Procedure, PatientProfile, BotCollaborator, get_user_by_username, create_user
 
 router = APIRouter(prefix="/api/crm", tags=["CRM"])
 logger = logging.getLogger(__name__)
@@ -227,9 +227,17 @@ def create_vapi_agent_api(agent_data: VapiAgentCreate, current_user: User = Depe
     return {"id": new_agent.id, "message": "Agent created"}
 
 # ========== WhatsApp Bots ==========
+def _bots_visible_to(current_user: User, db: Session):
+    """A user sees bots they own AND bots they've been added to as a team
+    collaborator (see BotCollaborator / the Team page)."""
+    collab_bot_ids = [c.bot_id for c in db.query(BotCollaborator).filter(BotCollaborator.user_id == current_user.id).all()]
+    return db.query(WhatsappBot).filter(
+        (WhatsappBot.owner_id == current_user.id) | (WhatsappBot.id.in_(collab_bot_ids))
+    ).all()
+
 @router.get("/bots/whatsapp")
 def get_my_bots(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    bots = db.query(WhatsappBot).filter(WhatsappBot.owner_id == current_user.id).all()
+    bots = _bots_visible_to(current_user, db)
     return [{
         "id": b.id,
         "name": b.name,
@@ -248,6 +256,12 @@ def get_my_bots(current_user: User = Depends(get_current_user), db: Session = De
         "ai_provider": b.ai_provider,
         "ai_api_key": mask_sensitive(b.ai_api_key),
         "system_prompt": b.system_prompt,
+        "provider": b.provider,
+        "wwebjs_session": b.wwebjs_session,
+        "messenger_page_id": b.messenger_page_id,
+        "instagram_account_id": b.instagram_account_id,
+        "manychat_api_key": mask_sensitive(b.manychat_api_key) if b.manychat_api_key else None,
+        "is_owner": b.owner_id == current_user.id,
         "created_at": b.created_at.isoformat() if b.created_at else None
     } for b in bots]
 
@@ -480,10 +494,19 @@ def delete_bot_api(bot_id: int, current_user: User = Depends(get_current_user), 
 
 # ========== Appointments / Leads / Doctors (owner-scoped, for the dashboard) ==========
 def _get_owned_bot(bot_id: int, current_user: User, db: Session) -> WhatsappBot:
+    """A bot is accessible to its owner AND any user added as a team
+    collaborator (see BotCollaborator / the Team page) — same data either way."""
     bot = db.query(WhatsappBot).filter(WhatsappBot.id == bot_id, WhatsappBot.owner_id == current_user.id).first()
-    if not bot:
-        raise HTTPException(404, "Bot not found")
-    return bot
+    if bot:
+        return bot
+    is_collaborator = db.query(BotCollaborator).filter(
+        BotCollaborator.bot_id == bot_id, BotCollaborator.user_id == current_user.id
+    ).first()
+    if is_collaborator:
+        bot = db.query(WhatsappBot).filter(WhatsappBot.id == bot_id).first()
+        if bot:
+            return bot
+    raise HTTPException(404, "Bot not found")
 
 @router.get("/bots/{bot_id}/appointments")
 def list_appointments_api(
@@ -807,6 +830,71 @@ def seed_demo_data_api(
         "appointments_created": appointments_created,
     }
 
+# ========== Team (bot collaborators) ==========
+class TeamMemberCreate(BaseModel):
+    username: str
+    password: str
+
+@router.get("/bots/{bot_id}/team")
+def list_team_api(
+    bot_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    bot = _get_owned_bot(bot_id, current_user, db)
+    owner = db.query(User).filter(User.id == bot.owner_id).first()
+    collaborators = db.query(BotCollaborator).filter(BotCollaborator.bot_id == bot_id).all()
+    collaborator_users = {u.id: u for u in db.query(User).filter(User.id.in_([c.user_id for c in collaborators])).all()} if collaborators else {}
+    members = [{"user_id": owner.id, "username": owner.username, "role": "owner"}]
+    for c in collaborators:
+        u = collaborator_users.get(c.user_id)
+        if u:
+            members.append({"user_id": u.id, "username": u.username, "role": "member", "added_at": c.created_at})
+    return members
+
+@router.post("/bots/{bot_id}/team")
+def add_team_member_api(
+    bot_id: int,
+    body: TeamMemberCreate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Owner-only: create a login for a team member (or reuse an existing
+    user) and grant them access to this bot's dashboard data. New accounts
+    are always created with role='user' — never 'admin' — regardless of who
+    creates them."""
+    bot = db.query(WhatsappBot).filter(WhatsappBot.id == bot_id, WhatsappBot.owner_id == current_user.id).first()
+    if not bot:
+        raise HTTPException(404, "Bot not found, or you're not the owner")
+
+    member = get_user_by_username(db, body.username)
+    if not member:
+        member = create_user(db, body.username, body.password, role="user")
+        if not member:
+            raise HTTPException(400, "Could not create user")
+    elif member.id == current_user.id:
+        raise HTTPException(400, "You already have access to this bot")
+
+    existing = db.query(BotCollaborator).filter(BotCollaborator.bot_id == bot_id, BotCollaborator.user_id == member.id).first()
+    if not existing:
+        db.add(BotCollaborator(bot_id=bot_id, user_id=member.id))
+        db.commit()
+    return {"status": "added", "user_id": member.id, "username": member.username}
+
+@router.delete("/bots/{bot_id}/team/{user_id}")
+def remove_team_member_api(
+    bot_id: int,
+    user_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    bot = db.query(WhatsappBot).filter(WhatsappBot.id == bot_id, WhatsappBot.owner_id == current_user.id).first()
+    if not bot:
+        raise HTTPException(404, "Bot not found, or you're not the owner")
+    db.query(BotCollaborator).filter(BotCollaborator.bot_id == bot_id, BotCollaborator.user_id == user_id).delete()
+    db.commit()
+    return {"status": "removed"}
+
 # ========== Stats & Overview ==========
 @router.get("/stats")
 def get_stats_api(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
@@ -833,7 +921,11 @@ def get_stats_api(current_user: User = Depends(get_current_user), db: Session = 
 
     # Appointment-bot revenue series (last 7 days, by appointment_date) — feeds the
     # Overview dashboard's revenue chart. Cancelled appointments don't count as revenue.
-    appt_q = db.query(Appointment).filter(Appointment.owner_id == current_user.id)
+    # Scoped by bot_id (owned OR collaborator bots), not owner_id directly — a team
+    # member added via the Team page didn't create these appointments, but should
+    # still see the same numbers as the bot owner.
+    visible_bot_ids = [b.id for b in _bots_visible_to(current_user, db)]
+    appt_q = db.query(Appointment).filter(Appointment.bot_id.in_(visible_bot_ids))
     revenue_series = []
     for i in range(6, -1, -1):
         day = today - timedelta(days=i)

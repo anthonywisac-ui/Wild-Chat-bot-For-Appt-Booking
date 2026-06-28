@@ -215,6 +215,17 @@ class WhatsappBot(Base):
     # own "Profile Scoped Public API" key, used to push replies directly.
     manychat_api_key       = Column(String, nullable=True)
 
+class BotCollaborator(Base):
+    """Grants a non-owner User read/write access to a bot's CRM data (dashboard
+    pages, appointments, leads, etc.) without transferring ownership. The bot
+    owner adds team members from the dashboard's Team page; collaborators see
+    exactly the same data the owner does, scoped to this one bot."""
+    __tablename__ = "bot_collaborators"
+    id = Column(Integer, primary_key=True, index=True)
+    bot_id = Column(Integer, ForeignKey("whatsapp_bots.id", ondelete="CASCADE"), nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
 class WebhookEvent(Base):
     __tablename__ = "webhook_events"
     id = Column(Integer, primary_key=True, index=True)

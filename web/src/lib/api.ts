@@ -93,6 +93,19 @@ export const api = {
     request<{ message: string }>(`/api/crm/bots/${botId}/seed-demo-data`, {
       method: "POST",
     }),
+  team: (botId: number) =>
+    request<{ user_id: number; username: string; role: "owner" | "member" }[]>(
+      `/api/crm/bots/${botId}/team`
+    ),
+  addTeamMember: (botId: number, username: string, password: string) =>
+    request<{ status: string; user_id: number; username: string }>(
+      `/api/crm/bots/${botId}/team`,
+      { method: "POST", body: JSON.stringify({ username, password }) }
+    ),
+  removeTeamMember: (botId: number, userId: number) =>
+    request<{ status: string }>(`/api/crm/bots/${botId}/team/${userId}`, {
+      method: "DELETE",
+    }),
 };
 
 export interface Stats {
