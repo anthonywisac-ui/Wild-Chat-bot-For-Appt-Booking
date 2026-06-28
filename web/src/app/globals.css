@@ -35,10 +35,15 @@
   --color-amber-soft: var(--amber-soft);
   --color-pink: var(--pink);
   --color-pink-soft: var(--pink-soft);
-  --font-sans: var(--font-jakarta);
+  --font-sans: var(--font-sans);
+  --font-heading: var(--font-heading);
   --shadow-soft: var(--shadow-soft);
 }
 
 body {
   background: var(--bg);
+}
+
+h1, h2, h3, .font-extrabold {
+  font-family: var(--font-heading);
 }

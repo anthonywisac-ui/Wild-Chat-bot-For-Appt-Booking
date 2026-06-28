@@ -106,6 +106,39 @@ export const api = {
     request<{ status: string }>(`/api/crm/bots/${botId}/team/${userId}`, {
       method: "DELETE",
     }),
+  createProcedure: (botId: number, body: ProcedurePayload) =>
+    request<Procedure>(`/api/crm/bots/${botId}/procedures`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  updateProcedure: (botId: number, procedureId: number, body: Partial<ProcedurePayload>) =>
+    request<Procedure>(`/api/crm/bots/${botId}/procedures/${procedureId}`, {
+      method: "PUT",
+      body: JSON.stringify(body),
+    }),
+  deleteProcedure: (botId: number, procedureId: number) =>
+    request<{ status: string }>(`/api/crm/bots/${botId}/procedures/${procedureId}`, {
+      method: "DELETE",
+    }),
+  createDoctor: (botId: number, body: DoctorPayload) =>
+    request<Doctor>(`/api/crm/bots/${botId}/doctors`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  updateDoctor: (botId: number, doctorId: number, body: Partial<DoctorPayload>) =>
+    request<Doctor>(`/api/crm/bots/${botId}/doctors/${doctorId}`, {
+      method: "PUT",
+      body: JSON.stringify(body),
+    }),
+  deleteDoctor: (botId: number, doctorId: number) =>
+    request<{ status: string }>(`/api/crm/bots/${botId}/doctors/${doctorId}`, {
+      method: "DELETE",
+    }),
+  createAppointment: (botId: number, body: AppointmentCreatePayload) =>
+    request<Appointment>(`/api/crm/bots/${botId}/appointments`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
 };
 
 export interface Stats {
@@ -188,6 +221,35 @@ export interface Patient {
   gender: string | null;
   city: string | null;
   created_at: string;
+}
+
+export interface ProcedurePayload {
+  department: string;
+  name: string;
+  sessions_required: number;
+  fee_per_session: number;
+  package_tier?: string;
+  description?: string;
+}
+
+export interface DoctorPayload {
+  department: string;
+  name: string;
+  gender: string;
+  bio?: string;
+  consultation_fee: number;
+}
+
+export interface AppointmentCreatePayload {
+  customer_name: string;
+  customer_phone: string;
+  department: string;
+  appointment_date: string;
+  appointment_time: string;
+  procedure_id?: number;
+  doctor_id?: number;
+  consultation_fee: number;
+  service?: string;
 }
 
 export const DEPARTMENT_LABELS: Record<string, string> = {

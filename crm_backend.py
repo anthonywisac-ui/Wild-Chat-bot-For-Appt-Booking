@@ -10,7 +10,14 @@ import logging
 import requests
 
 from auth import get_current_user, require_admin
-from db import get_db, User, WhatsappBot, Contact, Deal, Call, VapiAgent, AuditLog, BotConfigAudit, AdminSetting, ChatHistory, BotEventLog, log_bot_event, Reservation, SaleRecord, BotPlugin, Appointment, Doctor, Lead, Procedure, PatientProfile, BotCollaborator, get_user_by_username, create_user
+from db import (
+    get_db, User, WhatsappBot, Contact, Deal, Call, VapiAgent, AuditLog, BotConfigAudit, AdminSetting,
+    ChatHistory, BotEventLog, log_bot_event, Reservation, SaleRecord, BotPlugin, Appointment, Doctor, Lead,
+    Procedure, PatientProfile, BotCollaborator, get_user_by_username, create_user,
+    create_doctor, update_doctor, delete_doctor, get_doctor_by_id,
+    create_procedure, update_procedure, delete_procedure, get_procedure_by_id,
+    create_appointment,
+)
 
 router = APIRouter(prefix="/api/crm", tags=["CRM"])
 logger = logging.getLogger(__name__)
@@ -508,6 +515,48 @@ def _get_owned_bot(bot_id: int, current_user: User, db: Session) -> WhatsappBot:
             return bot
     raise HTTPException(404, "Bot not found")
 
+class AppointmentCreateBody(BaseModel):
+    customer_name: str
+    customer_phone: str
+    department: str
+    appointment_date: str
+    appointment_time: str
+    procedure_id: Optional[int] = None
+    doctor_id: Optional[int] = None
+    consultation_fee: float = 0.0
+    service: Optional[str] = None
+
+@router.post("/bots/{bot_id}/appointments")
+def create_appointment_api(
+    bot_id: int, body: AppointmentCreateBody,
+    current_user: User = Depends(get_current_user), db: Session = Depends(get_db),
+):
+    """Lets clinic staff book a walk-in/phone-call appointment directly from
+    the dashboard — previously the only way to create an Appointment row was
+    through the WhatsApp bot flow itself. Mirrors db.create_appointment(),
+    the same helper the bot uses, so manually-booked and bot-booked
+    appointments behave identically everywhere else (Reports, Payments, etc.)."""
+    _get_owned_bot(bot_id, current_user, db)
+    service_name = body.service
+    if not service_name and body.procedure_id:
+        proc = db.query(Procedure).filter(Procedure.id == body.procedure_id, Procedure.bot_id == bot_id).first()
+        if proc:
+            service_name = proc.name
+    appt = create_appointment(
+        db, owner_id=current_user.id, bot_id=bot_id,
+        customer_phone=body.customer_phone, customer_name=body.customer_name,
+        service=service_name or "Consultation", department=body.department,
+        doctor_id=body.doctor_id, consultation_fee=body.consultation_fee,
+        procedure_id=body.procedure_id,
+        appointment_date=body.appointment_date, appointment_time=body.appointment_time,
+    )
+    return {
+        "id": appt.id, "customer_name": appt.customer_name, "customer_phone": appt.customer_phone,
+        "service": appt.service, "department": appt.department, "status": appt.status,
+        "appointment_date": appt.appointment_date, "appointment_time": appt.appointment_time,
+        "consultation_fee": appt.consultation_fee,
+    }
+
 @router.get("/bots/{bot_id}/appointments")
 def list_appointments_api(
     bot_id: int,
@@ -624,6 +673,62 @@ def list_doctors_api(
         for r in rows
     ]
 
+class DoctorBody(BaseModel):
+    department: str
+    name: str
+    gender: str = ""
+    bio: str = ""
+    consultation_fee: float = 0.0
+
+class DoctorUpdateBody(BaseModel):
+    department: Optional[str] = None
+    name: Optional[str] = None
+    gender: Optional[str] = None
+    bio: Optional[str] = None
+    consultation_fee: Optional[float] = None
+
+def _doctor_dict(r: Doctor) -> dict:
+    return {
+        "id": r.id, "department": r.department, "name": r.name,
+        "gender": r.gender, "bio": r.bio, "consultation_fee": r.consultation_fee,
+    }
+
+@router.post("/bots/{bot_id}/doctors")
+def create_doctor_api(
+    bot_id: int, body: DoctorBody,
+    current_user: User = Depends(get_current_user), db: Session = Depends(get_db),
+):
+    _get_owned_bot(bot_id, current_user, db)
+    doc = create_doctor(
+        db, bot_id=bot_id, department=body.department, name=body.name,
+        gender=body.gender, bio=body.bio, consultation_fee=body.consultation_fee,
+    )
+    return _doctor_dict(doc)
+
+@router.put("/bots/{bot_id}/doctors/{doctor_id}")
+def update_doctor_api(
+    bot_id: int, doctor_id: int, body: DoctorUpdateBody,
+    current_user: User = Depends(get_current_user), db: Session = Depends(get_db),
+):
+    _get_owned_bot(bot_id, current_user, db)
+    doc = get_doctor_by_id(db, bot_id, doctor_id)
+    if not doc:
+        raise HTTPException(404, "Doctor not found")
+    doc = update_doctor(db, doc, body.dict(exclude_unset=True))
+    return _doctor_dict(doc)
+
+@router.delete("/bots/{bot_id}/doctors/{doctor_id}")
+def delete_doctor_api(
+    bot_id: int, doctor_id: int,
+    current_user: User = Depends(get_current_user), db: Session = Depends(get_db),
+):
+    _get_owned_bot(bot_id, current_user, db)
+    doc = get_doctor_by_id(db, bot_id, doctor_id)
+    if not doc:
+        raise HTTPException(404, "Doctor not found")
+    delete_doctor(db, doc)
+    return {"status": "deleted"}
+
 @router.get("/bots/{bot_id}/procedures")
 def list_procedures_api(
     bot_id: int,
@@ -644,6 +749,66 @@ def list_procedures_api(
         }
         for r in rows
     ]
+
+class ProcedureBody(BaseModel):
+    department: str
+    name: str
+    sessions_required: int = 1
+    fee_per_session: float = 0.0
+    package_tier: str = ""
+    description: str = ""
+
+class ProcedureUpdateBody(BaseModel):
+    department: Optional[str] = None
+    name: Optional[str] = None
+    sessions_required: Optional[int] = None
+    fee_per_session: Optional[float] = None
+    package_tier: Optional[str] = None
+    description: Optional[str] = None
+
+def _procedure_dict(r: Procedure) -> dict:
+    return {
+        "id": r.id, "department": r.department, "name": r.name,
+        "sessions_required": r.sessions_required, "fee_per_session": r.fee_per_session,
+        "package_tier": r.package_tier, "description": r.description,
+    }
+
+@router.post("/bots/{bot_id}/procedures")
+def create_procedure_api(
+    bot_id: int, body: ProcedureBody,
+    current_user: User = Depends(get_current_user), db: Session = Depends(get_db),
+):
+    _get_owned_bot(bot_id, current_user, db)
+    proc = create_procedure(
+        db, bot_id=bot_id, department=body.department, name=body.name,
+        sessions_required=body.sessions_required, fee_per_session=body.fee_per_session,
+        description=body.description, package_tier=body.package_tier,
+    )
+    return _procedure_dict(proc)
+
+@router.put("/bots/{bot_id}/procedures/{procedure_id}")
+def update_procedure_api(
+    bot_id: int, procedure_id: int, body: ProcedureUpdateBody,
+    current_user: User = Depends(get_current_user), db: Session = Depends(get_db),
+):
+    _get_owned_bot(bot_id, current_user, db)
+    proc = get_procedure_by_id(db, bot_id, procedure_id)
+    if not proc:
+        raise HTTPException(404, "Procedure not found")
+    proc = update_procedure(db, proc, body.dict(exclude_unset=True))
+    return _procedure_dict(proc)
+
+@router.delete("/bots/{bot_id}/procedures/{procedure_id}")
+def delete_procedure_api(
+    bot_id: int, procedure_id: int,
+    current_user: User = Depends(get_current_user), db: Session = Depends(get_db),
+):
+    _get_owned_bot(bot_id, current_user, db)
+    proc = get_procedure_by_id(db, bot_id, procedure_id)
+    if not proc:
+        raise HTTPException(404, "Procedure not found")
+    delete_procedure(db, proc)
+    return {"status": "deleted"}
 
 @router.get("/bots/{bot_id}/patients")
 def list_patients_api(
@@ -802,7 +967,12 @@ def seed_demo_data_api(
     today = datetime.utcnow().date()
     for day_offset in range(-7, 8):
         day = today + timedelta(days=day_offset)
-        for _ in range(random.randint(0, 2)):
+        # Guarantee today and tomorrow always get a few bookings — a random
+        # 0-2 roll could land on zero and make the Overview dashboard look
+        # empty ("$0 revenue today") right after seeding, which defeats the
+        # point of seeding it for a demo.
+        count = random.randint(2, 3) if day_offset in (0, 1) else random.randint(0, 2)
+        for _ in range(count):
             patient_name, phone, age, gender, city = random.choice(_DEMO_PATIENTS)
             dept = random.choice(list(_DEMO_DEPARTMENTS.keys()))
             proc = random.choice(procedures_by_dept[dept])
@@ -815,7 +985,7 @@ def seed_demo_data_api(
                 consultation_fee=proc.fee_per_session,
                 appointment_date=day.strftime("%Y-%m-%d"),
                 appointment_time=f"{hour:02d}:00",
-                status=random.choice(appt_statuses_weighted),
+                status=random.choice(["Confirmed", "Confirmed", "Scheduled"]) if day_offset >= 0 else random.choice(appt_statuses_weighted),
                 reminder_sent=day_offset < 0,
             ))
             appointments_created += 1

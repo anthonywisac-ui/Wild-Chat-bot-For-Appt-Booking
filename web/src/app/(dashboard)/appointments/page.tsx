@@ -2,10 +2,12 @@
 
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
+import { Plus } from "lucide-react";
 import { useDashboard } from "@/lib/dashboard-context";
 import { PageHeader } from "@/components/PageHeader";
 import { FilterTabs } from "@/components/FilterTabs";
 import { StatusPill } from "@/components/StatusPill";
+import { NewAppointmentModal } from "@/components/NewAppointmentModal";
 import { api, type Appointment } from "@/lib/api";
 
 const STATUS_OPTIONS = [
@@ -22,8 +24,9 @@ export default function AppointmentsPage() {
   const [rows, setRows] = useState<Appointment[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [newApptOpen, setNewApptOpen] = useState(false);
 
-  useEffect(() => {
+  function reload() {
     setLoading(true);
     api
       .appointments(bot.id, status ? { status, limit: 100 } : { limit: 100 })
@@ -32,7 +35,9 @@ export default function AppointmentsPage() {
         setTotal(res.total);
         setLoading(false);
       });
-  }, [bot.id, status]);
+  }
+
+  useEffect(reload, [bot.id, status]);
 
   async function setApptStatus(id: number, newStatus: string) {
     await api.updateAppointmentStatus(bot.id, id, newStatus);
@@ -41,8 +46,26 @@ export default function AppointmentsPage() {
 
   return (
     <>
-      <PageHeader title="Appointments" subtitle={`${total} total bookings`} />
+      <PageHeader
+        title="Appointments"
+        subtitle={`${total} total bookings`}
+        action={
+          <button
+            onClick={() => setNewApptOpen(true)}
+            className="bg-primary hover:bg-primary-dark transition-colors text-white text-[13px] font-semibold px-4 py-2.5 rounded-xl flex items-center gap-1.5"
+          >
+            <Plus size={15} /> New appointment
+          </button>
+        }
+      />
       <FilterTabs options={STATUS_OPTIONS} value={status} onChange={setStatus} />
+
+      <NewAppointmentModal
+        open={newApptOpen}
+        onClose={() => setNewApptOpen(false)}
+        botId={bot.id}
+        onCreated={() => reload()}
+      />
 
       <div className="bg-card rounded-2xl p-5 [box-shadow:var(--shadow-soft)]">
         {loading && <p className="text-sm text-ink-muted py-6 text-center">Loading…</p>}

@@ -13,6 +13,7 @@ import {
 import { useDashboard } from "@/lib/dashboard-context";
 import { RevenueChart } from "@/components/RevenueChart";
 import { StatusPill } from "@/components/StatusPill";
+import { NewAppointmentModal } from "@/components/NewAppointmentModal";
 import { api, type Stats, type Appointment, type Lead, type Doctor } from "@/lib/api";
 
 const QUALITY_SCORE: Record<string, number> = { low: 35, medium: 65, high: 90 };
@@ -24,6 +25,7 @@ export default function OverviewPage() {
   const [leads, setLeads] = useState<Lead[]>([]);
   const [doctors, setDoctors] = useState<Doctor[]>([]);
   const [loading, setLoading] = useState(true);
+  const [newApptOpen, setNewApptOpen] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -76,11 +78,21 @@ export default function OverviewPage() {
             Here&apos;s an overview of your clinic and today&apos;s bookings.
           </p>
         </div>
-        <button className="bg-primary hover:bg-primary-dark transition-colors text-white text-[13px] font-semibold px-4 py-2.5 rounded-xl flex items-center gap-1.5">
+        <button
+          onClick={() => setNewApptOpen(true)}
+          className="bg-primary hover:bg-primary-dark transition-colors text-white text-[13px] font-semibold px-4 py-2.5 rounded-xl flex items-center gap-1.5"
+        >
           <Plus size={15} />
           New appointment
         </button>
       </div>
+
+      <NewAppointmentModal
+        open={newApptOpen}
+        onClose={() => setNewApptOpen(false)}
+        botId={bot.id}
+        onCreated={(a) => setAppointments((prev) => [a, ...prev].slice(0, 5))}
+      />
 
       <div className="grid grid-cols-4 gap-3.5 mb-3.5">
         <motion.div
